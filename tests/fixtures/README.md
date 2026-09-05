@@ -26,6 +26,35 @@ Tcl 8.6.18 source distribution. They remain under Tcl's permissive license,
 included verbatim as `tcl/license.terms`; their original copyright notices are
 retained.
 
+The Tcl corpus contains 14 scripts. Paths under `tcl/` preserve their paths
+relative to the upstream Tcl 8.6.18 `library/` directory:
+
+| Fixture paths | Representative library code |
+| --- | --- |
+| `init.tcl`, `package.tcl`, `safe.tcl`, `clock.tcl` | Initialization, package management, safe interpreters, and clock handling |
+| `auto.tcl` | Autoloading and index generation |
+| `history.tcl` | History commands and namespace ensembles |
+| `parray.tcl` | Array formatting and iteration |
+| `tm.tcl` | Tcl module discovery and namespace paths |
+| `word.tcl` | Word boundaries and regular expressions |
+| `http/http.tcl` | HTTP callbacks, state, and channel handling |
+| `msgcat/msgcat.tcl` | Message catalogs, locale handling, and dictionaries |
+| `opt/optparse.tcl` | Option parsing and argument descriptions |
+| `platform/platform.tcl`, `platform/shell.tcl` | Platform detection and shell configuration |
+
+These are parser/analyzer inputs, not runtime dependencies; the tests do not
+execute them or require the packages, network access, or platform facilities
+they reference. The corpus test recursively discovers `.tcl` files, checks
+both parser implementations for structural errors, and rejects error-level
+analysis diagnostics. The license file is retained for redistribution and is
+not parsed as Tcl.
+
+To refresh a script, copy the corresponding upstream `library/` file verbatim,
+retain the distribution's license and copyright notices, update this provenance
+record, and run the GNU `reference_corpus` integration test. The local source
+checkout used for these copies was `reference/tcl8.6.18`; the copied fixtures
+remain usable after that checkout is removed.
+
 The SDC and XDC files are small, project-authored test inputs derived from the
 command forms, interpretation notes, and expected behaviors in the reference
 packages supplied for this project. The XDC package was itself based on AMD

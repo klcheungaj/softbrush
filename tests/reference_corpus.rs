@@ -91,7 +91,7 @@ fn accepts_supplied_positive_xdc_corpus() {
 
 #[test]
 fn accepts_representative_tcl_86_library_files() {
-    assert_accepted_corpus(&Path::new(FIXTURES).join("tcl"), None, Dialect::Tcl);
+    assert_accepted_corpus(&Path::new(FIXTURES).join("tcl"), Some("tcl"), Dialect::Tcl);
 }
 
 #[test]
