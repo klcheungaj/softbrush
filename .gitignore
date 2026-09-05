@@ -1,0 +1,20 @@
+# Local agent configuration
+/.codex/
+
+# Rust build output and local source material
+target/
+**/target/
+/reference/
+/vendor/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.swp
+/core
+/core.*
+/build-cache/
+/temp/

@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gnu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+      - name: Check formatting
+        run: |
+          cargo +1.95.0 fmt --all --check
+          cargo +1.95.0 fmt --manifest-path tools/parser-generator/Cargo.toml --all --check
+      - name: Check generated parser
+        run: ./scripts/generate-parser.sh --check
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+      - name: Run tests
+        run: |
+          cargo +1.95.0 test --locked --all-targets --target x86_64-unknown-linux-gnu
+          cargo +1.95.0 test --locked --manifest-path tools/parser-generator/Cargo.toml --target x86_64-unknown-linux-gnu
+      - name: Run Clippy
+        run: |
+          cargo +1.95.0 clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+          cargo +1.95.0 clippy --locked --manifest-path tools/parser-generator/Cargo.toml --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+      - name: Check public API documentation
+        run: cargo +1.95.0 doc --locked --no-deps --target x86_64-unknown-linux-gnu
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Install cargo-audit
+        run: cargo +stable install cargo-audit --locked
+      - name: Audit language server dependencies
+        run: cargo +stable audit --file Cargo.lock --deny unsound
+      - name: Audit parser generator dependencies
+        # antlr-rust-codegen currently brings build-only, unmaintained UNIC
+        # crates through RustPython. Vulnerabilities and unsoundness still fail.
+        run: cargo +stable audit --file tools/parser-generator/Cargo.lock --deny unsound
+
+  musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust and musl toolchains
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup target add --toolchain 1.95.0 x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build static softbrush_ls with mimalloc
+        run: ./scripts/build-musl.sh
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+      - name: Verify static executable
+        run: ./scripts/verify-musl.sh target/x86_64-unknown-linux-musl/release/softbrush_ls
+      - name: Run end-to-end tests against musl executable
+        run: cargo test --locked --test lsp_e2e
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/softbrush_ls
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build GNU development image
+        run: docker build --target gnu-dev --tag softbrush_ls:dev .
+      - name: Run tests in GNU development image
+        run: docker run --rm softbrush_ls:dev
+      - name: Build Alpine musl image
+        run: docker build --tag softbrush_ls:musl .
+      - name: Smoke-test container entrypoint
+        run: docker run --rm --interactive softbrush_ls:musl </dev/null

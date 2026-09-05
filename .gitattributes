@@ -1,0 +1,2 @@
+# Constraint fixtures intentionally include malformed/trailing whitespace cases.
+tests/fixtures/** -whitespace
