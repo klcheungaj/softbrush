@@ -432,3 +432,85 @@ fn does_not_navigate_dynamic_unresolved_or_non_clock_arguments() {
         assert!((0..source.len()).all(|offset| analysis.definition_at(offset).is_none()));
     }
 }
+
+#[test]
+fn completes_options_for_the_command_at_the_cursor() {
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        for source in [
+            "set_input_delay -",
+            "set_input_delay \\\r\n  -",
+            "puts 😀; set_input_delay -",
+            "set_output_delay -clock clk 2 [get_ports din]; set_input_delay -",
+        ] {
+            let analysis = analyze(source, dialect);
+            let result = analysis
+                .option_completions(dialect, source.len())
+                .expect("option context");
+            for label in ["-clock", "-clock_fall", "-max", "-min", "-add_delay"] {
+                assert!(result.labels.contains(&label), "{source}: {label}");
+            }
+            assert!(!result.labels.contains(&"-clock_fail"));
+            assert!(!result.labels.contains(&"-period"));
+            assert_eq!(&source[result.span], "-");
+            assert_eq!(
+                result.labels.contains(&"-level_sensitive"),
+                dialect == Dialect::Sdc
+            );
+            assert_eq!(
+                result.labels.contains(&"-reference_pin"),
+                dialect == Dialect::Xdc
+            );
+        }
+        let source = "set_input_delay -clock clk 1 [get_ports -nocase]";
+        let offset = source.find("-nocase").expect("query option") + 3;
+        let result = analyze(source, dialect)
+            .option_completions(dialect, offset)
+            .expect("nested option");
+        assert_eq!(result.labels, ["-nocase"]);
+        assert_eq!(&source[result.span], "-nocase");
+        let source = "set_input_delay -cl";
+        assert_eq!(
+            analyze(source, dialect)
+                .option_completions(dialect, source.len())
+                .expect("prefix")
+                .labels,
+            ["-clock", "-clock_fall"]
+        );
+        let source = "vendor_command -";
+        assert!(
+            analyze(source, dialect)
+                .option_completions(dialect, source.len())
+                .expect("unknown context")
+                .labels
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn avoids_option_contexts_in_literals_comments_numbers_and_command_names() {
+    for source in [
+        "",
+        "-",
+        "# set_input_delay -",
+        "set_input_delay {-}",
+        "set_input_delay \"-\"",
+        "set_input_delay -1",
+        "set_input_delay $var",
+        "set_input_delay ",
+        "set_input_delay -clock [get_ports {-}]",
+    ] {
+        let analysis = analyze(source, Dialect::Sdc);
+        assert!(
+            analysis
+                .option_completions(Dialect::Sdc, source.len())
+                .is_none(),
+            "{source}"
+        );
+    }
+    assert!(
+        analyze("set_input_delay -", Dialect::Tcl)
+            .option_completions(Dialect::Tcl, 17)
+            .is_none()
+    );
+}

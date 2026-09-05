@@ -795,6 +795,7 @@ fn validates_every_advertised_lsp_feature_over_stdio() {
     assert_symbol_providers(&mut client);
     assert_hover_and_completion(&mut client);
     assert_clock_navigation(&mut client);
+    assert_option_completion(&mut client);
     assert_change_and_close_lifecycle(&mut client);
     client.shutdown();
 }
@@ -866,5 +867,59 @@ fn assert_clock_navigation(client: &mut LspClient) {
             }),
         );
         assert_eq!(response.get("result"), Some(&Value::Null));
+    }
+}
+
+fn assert_option_completion(client: &mut LspClient) {
+    let source = "# 😀 completion\r\nset label 😀; set_input_delay -\r\nset_output_delay -clock clk 1 [get_ports -nocase]";
+    for (uri, language) in [
+        ("file:///tmp/completion.sdc", "sdc"),
+        ("file:///tmp/completion.xdc", "xdc"),
+    ] {
+        open_document(client, uri, language, source);
+        let response = client.request(
+            "textDocument/completion",
+            &json!({
+                "textDocument": {"uri": uri}, "position": {"line": 1, "character": 31},
+                "context": {"triggerKind": 2, "triggerCharacter": "-"}
+            }),
+        );
+        let items = response["result"].as_array().expect("option items");
+        for label in ["-clock", "-clock_fall", "-max", "-min"] {
+            let item = items
+                .iter()
+                .find(|item| item["label"] == label)
+                .expect("documented option");
+            assert_eq!(item["kind"], json!(5));
+            assert_eq!(
+                item["textEdit"],
+                json!({
+                    "range": {"start": {"line": 1, "character": 30}, "end": {"line": 1, "character": 31}},
+                    "newText": label
+                })
+            );
+        }
+        assert!(
+            items
+                .iter()
+                .all(|item| item["label"].as_str().expect("label").starts_with('-'))
+        );
+        let response = client.request(
+            "textDocument/completion",
+            &json!({
+                "textDocument": {"uri": uri}, "position": {"line": 2, "character": 44}
+            }),
+        );
+        let items = response["result"].as_array().expect("nested option items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["label"], json!("-nocase"));
+        assert_eq!(
+            items[0]["textEdit"],
+            json!({
+                "range": {"start": {"line": 2, "character": 41}, "end": {"line": 2, "character": 48}},
+                "newText": "-nocase"
+            })
+        );
+        close_document(client, uri);
     }
 }

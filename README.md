@@ -15,7 +15,7 @@ SDC/XDC constraint dialects. It uses an ANTLR4 grammar and the pure-Rust
 - high-confidence checks for common clock, delay, and multicycle mistakes
 - document and workspace symbols for procedures, namespaces, variables,
   clocks, Pblocks, macros, and debug cores
-- command completion and hover help
+- command and context-sensitive SDC/XDC option completion, plus hover help
 - go-to-definition for document-local clock references
 - UTF-16-correct LSP positions
 
@@ -156,6 +156,11 @@ Go-to-definition uses the same clock resolution as highlighting and jumps to
 its `create_clock` or `create_generated_clock` declaration name. Editing the
 document immediately updates resolution.
 
+Typing `-` in a command argument offers documented options for that command,
+including `-clock`, `-clock_fall`, `-max`, and `-min` for `set_input_delay`.
+Completion replaces the typed option, including its hyphen, and recognizes
+nested queries and continued lines. See [option catalog sources and scope](docs/command_options.md).
+
 Run the CLI regression suite with `cargo test --locked --test dump_tokens`.
 The LSP end-to-end suite compares the dump against tokens served over JSON-RPC
 and checks that deleting a clock definition removes its reference highlighting.
@@ -221,8 +226,8 @@ The test suite covers:
   source, plus dialect selection
 - a real `softbrush_ls` child process over framed JSON-RPC, including all
   advertised capabilities, diagnostics after open/change/close, semantic
-  tokens, document/workspace symbols, clock definitions, hover, completion,
-  shutdown, and exit
+  tokens, document/workspace symbols, clock definitions, hover, command/option
+  completion, shutdown, and exit
 
 Run only the process-level suite with `cargo test --test lsp_e2e`. Set
 `SOFTBRUSH_LS_BIN` to exercise a prebuilt executable such as the musl release.

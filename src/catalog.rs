@@ -1,5 +1,9 @@
 //! Command catalogs used for completion, hover, and dialect-aware linting.
 
+mod options;
+
+pub(crate) use options::command_options;
+
 /// A Tcl-based language variant selected from a document path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Dialect {

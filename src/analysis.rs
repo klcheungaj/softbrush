@@ -1,5 +1,9 @@
 //! Pure semantic analysis, diagnostics, symbols, and source-position mapping.
 
+mod completion;
+
+pub use completion::OptionCompletions;
+
 use std::collections::HashMap;
 use std::ops::Range;
 

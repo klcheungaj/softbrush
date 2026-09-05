@@ -11,16 +11,16 @@ use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf, Position, PositionEncodingKind,
-    Range, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
-    SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkspaceSymbolParams,
+    CompletionTextEdit, DiagnosticSeverity, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
+    Position, PositionEncodingKind, Range, SemanticToken, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -297,6 +297,31 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
+        if let Some(document) = self.documents.get(uri) {
+            let position = params.text_document_position.position;
+            let offset = document.index.offset(position.line, position.character);
+            if let Some(completions) = document
+                .analysis
+                .option_completions(document.dialect, offset)
+            {
+                let range = to_range(&document.index, completions.span);
+                let items = completions
+                    .labels
+                    .into_iter()
+                    .map(|label| CompletionItem {
+                        label: label.to_owned(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(format!("{} command option", dialect_name(document.dialect))),
+                        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                            range,
+                            new_text: label.to_owned(),
+                        })),
+                        ..CompletionItem::default()
+                    })
+                    .collect();
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
+        }
         let dialect = self.documents.get(uri).map_or_else(
             || Dialect::from_uri_path(uri.path()),
             |document| document.dialect,
