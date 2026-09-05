@@ -253,3 +253,82 @@ fn highlights_only_clock_references_defined_earlier_in_the_document() {
         );
     }
 }
+
+#[test]
+fn does_not_invent_clock_definitions_or_color_unresolved_literal_names() {
+    let source = concat!(
+        "vendor_command -name fake\n",
+        "create_clock -period 10\n",
+        "create_clock -name -period 10\n",
+        "create_clock -period 10 [get_ports]\n",
+        "create_clock -period 10 [get_ports clk*]\n",
+        "create_clock -period 10 [get_ports -filter fake]\n",
+        "create_clock -vendor_option fake -period 10\n",
+        "create_clock -name self -period 10 [get_clocks self]\n",
+        "set_input_delay -clock fake -max -1 din\n",
+        "set_input_delay -clock {missing} -min -2 din\n",
+        "set_input_delay -clock \"missing\" -min -3 din\n",
+        "set_input_delay -clock 10 -min -4 din\n",
+        "set_input_delay -clock get_ports -min -5 din\n",
+        "set_input_delay -clock clk* -min -6 din\n",
+    );
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let clocks = analysis
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.kind == SymbolKind::Clock)
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(clocks, ["self"]);
+        assert!(
+            !analysis
+                .semantic_spans
+                .iter()
+                .any(|span| span.kind == SemanticKind::Variable && !span.declaration)
+        );
+        for name in ["{missing}", "\"missing\""] {
+            let start = source.find(name).expect("fixture name");
+            assert!(
+                !analysis
+                    .semantic_spans
+                    .iter()
+                    .any(|span| span.span.start < start + name.len() && span.span.end > start)
+            );
+        }
+    }
+}
+
+#[test]
+fn distinguishes_clock_arguments_from_query_options_and_timing_values() {
+    let source = concat!(
+        "create_clock -name base -period 10\n",
+        "get_clocks -filter base\n",
+        "set_input_jitter base 0.25\n",
+        "set_clock_latency -source -min -0.5 base\n",
+        "set_clock_uncertainty -setup 0.125 base\n",
+    );
+    let analysis = analyze(source, Dialect::Xdc);
+    let numbers = analysis
+        .semantic_spans
+        .iter()
+        .filter(|span| span.kind == SemanticKind::Number)
+        .map(|span| &source[span.span.clone()])
+        .collect::<Vec<_>>();
+    assert_eq!(numbers, ["10", "0.25", "-0.5", "0.125"]);
+    let filter_start = source.find("-filter base").expect("filter") + "-filter ".len();
+    assert!(
+        !analysis
+            .semantic_spans
+            .iter()
+            .any(|span| span.span.contains(&filter_start))
+    );
+    assert_eq!(
+        analysis
+            .semantic_spans
+            .iter()
+            .filter(|span| span.kind == SemanticKind::Variable && !span.declaration)
+            .count(),
+        3
+    );
+}

@@ -153,8 +153,8 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
         classify_procedure_parameters(source, command, &mut semantic_spans);
     }
     classify_arguments(&syntax.commands, dialect, &mut semantic_spans);
-    classify_clock_references(&syntax.commands, dialect, &mut semantic_spans);
-    classify_strings(&syntax, &mut semantic_spans);
+    let clock_words = classify_clock_references(&syntax.commands, dialect, &mut semantic_spans);
+    classify_strings(&syntax, &clock_words, &mut semantic_spans);
     remove_overlapping_spans(&mut semantic_spans);
 
     diagnostics.sort_by_key(|diagnostic| (diagnostic.span.start, diagnostic.span.end));
@@ -174,7 +174,11 @@ fn is_procedure_argument_list(commands: &[Command], span: &Range<usize>) -> bool
     })
 }
 
-fn classify_strings(syntax: &SyntaxModel, spans: &mut Vec<SemanticSpan>) {
+fn classify_strings(
+    syntax: &SyntaxModel,
+    clock_words: &[Range<usize>],
+    spans: &mut Vec<SemanticSpan>,
+) {
     let mut protected = spans
         .iter()
         .map(|semantic| semantic.span.clone())
@@ -185,6 +189,7 @@ fn classify_strings(syntax: &SyntaxModel, spans: &mut Vec<SemanticSpan>) {
         .strings
         .iter()
         .filter(|span| !is_procedure_argument_list(&syntax.commands, span))
+        .filter(|span| !clock_words.contains(span))
     {
         let mut segment_start = string.start;
         for semantic in protected
@@ -538,14 +543,16 @@ fn classify_clock_references(
     commands: &[Command],
     dialect: Dialect,
     spans: &mut Vec<SemanticSpan>,
-) {
+) -> Vec<Range<usize>> {
     if dialect == Dialect::Tcl {
-        return;
+        return Vec::new();
     }
 
     let mut ordered_commands = commands.iter().collect::<Vec<_>>();
-    ordered_commands.sort_by_key(|command| (command.span.start, command.nesting, command.span.end));
+    // A substitution is evaluated before the containing clock declaration.
+    ordered_commands.sort_by_key(|command| command.span.end);
     let mut declared_clocks = HashSet::new();
+    let mut clock_words = Vec::new();
 
     for command in ordered_commands {
         let Some(name) = command.name() else {
@@ -556,13 +563,56 @@ fn classify_clock_references(
                 .plain_text()
                 .is_some_and(|option| catalog::option_accepts_clock_name(name, option))
             {
-                classify_clock_reference(&pair[1], &declared_clocks, spans);
+                classify_clock_reference(&pair[1], &declared_clocks, spans, &mut clock_words);
             }
         }
         if catalog::positional_arguments_accept_clock_names(name) {
+            let mut skip_value = false;
+            let mut position = 0;
             for word in command.words.iter().skip(1) {
-                if !word.text.starts_with('-') {
-                    classify_clock_reference(word, &declared_clocks, spans);
+                if skip_value {
+                    skip_value = false;
+                    continue;
+                }
+                if let Some(option) = word
+                    .plain_text()
+                    .filter(|text| text.starts_with('-') && text.parse::<f64>().is_err())
+                {
+                    if catalog::option_accepts_clock_name(name, option)
+                        || matches!(option, "-filter" | "-of_objects" | "-match_style")
+                    {
+                        skip_value = true;
+                    } else if !matches!(
+                        option,
+                        "-quiet"
+                            | "-verbose"
+                            | "-regexp"
+                            | "-nocase"
+                            | "-include_generated_clocks"
+                            | "-rise"
+                            | "-fall"
+                            | "-min"
+                            | "-max"
+                            | "-source"
+                            | "-late"
+                            | "-early"
+                            | "-setup"
+                            | "-hold"
+                            | "-add"
+                    ) {
+                        // An unknown option may consume the following words.
+                        break;
+                    }
+                    continue;
+                }
+                let is_clock = match name {
+                    "set_input_jitter" => position == 0,
+                    "set_clock_latency" | "set_clock_uncertainty" => position > 0,
+                    _ => true,
+                };
+                position += 1;
+                if is_clock {
+                    classify_clock_reference(word, &declared_clocks, spans, &mut clock_words);
                 }
             }
         }
@@ -570,16 +620,24 @@ fn classify_clock_references(
             declared_clocks.insert(clock_name);
         }
     }
+    clock_words
 }
 
 fn classify_clock_reference(
     word: &Word,
     declared_clocks: &HashSet<String>,
     spans: &mut Vec<SemanticSpan>,
+    clock_words: &mut Vec<Range<usize>>,
 ) {
     let Some((name, span)) = static_word_value(word) else {
         return;
     };
+    if name.starts_with('-') {
+        return;
+    }
+    clock_words.push(word.span.clone());
+    // A literal clock name is neither a numeric value nor a string token.
+    spans.retain(|semantic| semantic.span.end <= span.start || semantic.span.start >= span.end);
     if declared_clocks.contains(&name) {
         spans.push(SemanticSpan {
             span,
@@ -672,27 +730,45 @@ fn extract_symbol(
 }
 
 fn clock_definition(command: &Command, commands: &[Command]) -> Option<(String, Range<usize>)> {
+    if !matches!(
+        command.name(),
+        Some("create_clock" | "create_generated_clock")
+    ) {
+        return None;
+    }
     if let Some(name_index) = option_index(command, "-name") {
         return command
             .words
             .get(name_index + 1)
-            .and_then(static_word_value);
+            .and_then(static_word_value)
+            .filter(|(name, _)| !name.starts_with('-'));
     }
 
     let target = trailing_clock_target(command)?;
-    static_word_value(target).or_else(|| {
-        commands
-            .iter()
-            .filter(|nested| {
-                nested.nesting > command.nesting
-                    && nested.span.start >= target.span.start
-                    && nested.span.end <= target.span.end
-                    && matches!(nested.name(), Some("get_ports" | "get_pins" | "get_clocks"))
-            })
-            .max_by_key(|nested| nested.span.start)
-            .and_then(|nested| nested.words.last())
-            .and_then(static_word_value)
-    })
+    static_word_value(target)
+        .filter(|(name, _)| is_exact_clock_target(name))
+        .or_else(|| {
+            commands
+                .iter()
+                .filter(|nested| {
+                    nested.nesting == command.nesting + 1
+                        && nested.span.start == target.span.start + 1
+                        && nested.span.end + 1 == target.span.end
+                        && nested.words.len() == 2
+                        && matches!(nested.name(), Some("get_ports" | "get_pins"))
+                })
+                .max_by_key(|nested| nested.span.start)
+                .and_then(|nested| nested.words.last())
+                .and_then(static_word_value)
+                .filter(|(name, _)| is_exact_clock_target(name))
+        })
+}
+
+fn is_exact_clock_target(name: &str) -> bool {
+    !name.starts_with('-')
+        && !name
+            .chars()
+            .any(|ch| ch.is_whitespace() || matches!(ch, '*' | '?' | '[' | ']'))
 }
 
 fn trailing_clock_target(command: &Command) -> Option<&Word> {
@@ -720,7 +796,19 @@ fn trailing_clock_target(command: &Command) -> Option<&Word> {
         {
             index += 2;
         } else {
+            if word.text.starts_with('-')
+                && !matches!(
+                    word.plain_text(),
+                    Some("-add" | "-quiet" | "-verbose" | "-combinational" | "-invert")
+                )
+            {
+                // Unknown vendor options have unknown arity: cannot infer a target.
+                return None;
+            }
             if !word.text.starts_with('-') {
+                if target.is_some() {
+                    return None;
+                }
                 target = Some(word);
             }
             index += 1;
