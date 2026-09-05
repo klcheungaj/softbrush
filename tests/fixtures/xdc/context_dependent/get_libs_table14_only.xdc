@@ -1,0 +1,6 @@
+# Test: get_libs_table14_only
+# Expected lexical parse: accept
+# Expected managed-XDC command validation: source_dependent
+# Expected Vivado execution: context_dependent
+get_libs
+
