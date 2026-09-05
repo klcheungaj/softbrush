@@ -11,19 +11,20 @@ static G_ALLOCATOR: MiMalloc = MiMalloc;
 
 fn main() -> ExitCode {
     let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
-    if !arguments.is_empty() {
-        #[cfg(debug_assertions)]
-        return debug_cli::run(&arguments);
-        #[cfg(not(debug_assertions))]
-        {
-            eprintln!(
-                "softbrush_ls: release builds accept no arguments; run without arguments for LSP stdio"
-            );
-            return ExitCode::from(2);
-        }
+    if arguments.is_empty() || arguments.as_slice() == ["--stdio"] {
+        serve();
+        return ExitCode::SUCCESS;
     }
-    serve();
-    ExitCode::SUCCESS
+
+    #[cfg(debug_assertions)]
+    return debug_cli::run(&arguments);
+    #[cfg(not(debug_assertions))]
+    {
+        eprintln!(
+            "softbrush_ls: unknown argument; run without arguments or with --stdio for LSP stdio"
+        );
+        ExitCode::from(2)
+    }
 }
 
 #[tokio::main]

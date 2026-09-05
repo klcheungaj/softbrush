@@ -95,8 +95,10 @@ The final Alpine image runs `softbrush_ls` as an unprivileged user.
 Publishing a GitHub release builds this same musl target and uploads a tarball
 and SHA-256 checksum; GNU binaries remain development artifacts.
 
-Configure an editor language client to launch `softbrush_ls` over stdio for the
-language IDs `tcl`, `sdc`, and `xdc` and the matching file extensions.
+Configure an editor language client to launch `softbrush_ls --stdio` over stdio
+for the language IDs `tcl`, `sdc`, and `xdc` and the matching file extensions.
+Launching without arguments is supported for clients that select stdio through
+process configuration rather than a transport flag.
 
 ## Debug token dumps
 
@@ -134,9 +136,9 @@ colors and can be saved or diffed. Source errors remain report data (exit 0);
 usage, file, encoding, or output errors go to stderr and exit 2.
 
 The command is compiled only with `debug_assertions` (normal `cargo build` and
-`cargo run`). GNU and musl release builds reject command-line arguments with
-exit 2; no dump implementation is included. Starting with no arguments still
-serves LSP over stdio without printing a token report.
+`cargo run`). GNU and musl release builds reject non-transport command-line
+arguments with exit 2; no dump implementation is included. Starting with no
+arguments or `--stdio` serves LSP over stdio without printing a token report.
 
 SDC/XDC switches use `keyword`, brace delimiters use `operator`, signed values
 use `number`, and resolved

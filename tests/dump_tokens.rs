@@ -13,6 +13,14 @@ fn run(arguments: &[&str]) -> Output {
 fn rejects_invalid_arguments_without_starting_lsp() {
     for args in [
         vec!["--not-an-option"],
+        vec!["--stdio", "--not-an-option"],
+        vec!["--stdio", "--stdio"],
+        vec![
+            "--stdio",
+            "--dump-tokens",
+            "tests/fixtures/sdc/edge/token_dump.sdc",
+        ],
+        vec!["--dump-tokens", "--stdio"],
         vec!["--dump-tokens"],
         vec!["--dump-tokens", "--"],
     ] {
@@ -25,11 +33,16 @@ fn rejects_invalid_arguments_without_starting_lsp() {
 
 #[cfg(not(debug_assertions))]
 #[test]
-fn release_build_rejects_token_dump() {
-    let output = run(&["--dump-tokens", "tests/fixtures/sdc/edge/token_dump.sdc"]);
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("release builds accept no arguments"));
+fn release_build_rejects_non_transport_arguments() {
+    for args in [
+        vec!["--dump-tokens", "tests/fixtures/sdc/edge/token_dump.sdc"],
+        vec!["--stdio", "--not-an-option"],
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("unknown argument"));
+    }
 }
 
 #[cfg(debug_assertions)]

@@ -8,7 +8,7 @@ use std::process::ExitCode;
 const USAGE: &str = "Usage: softbrush_ls --dump-tokens [--] FILE...\n\
     Dump lexer tokens, parsed words, semantic tokens, unclassified text, and diagnostics.\n\
     Supported files: .tcl, .sdc, .xdc (case insensitive). Debug builds only.\n\
-    With no arguments, serve LSP over stdio.";
+    With no arguments or --stdio, serve LSP over stdio.";
 
 pub(super) fn run(arguments: &[OsString]) -> ExitCode {
     if arguments.len() == 1 && matches!(arguments[0].to_str(), Some("--help" | "-h")) {

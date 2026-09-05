@@ -51,10 +51,11 @@ struct LspClient {
 }
 
 impl LspClient {
-    fn start() -> Self {
+    fn start(arguments: &[&str]) -> Self {
         let executable = std::env::var_os("SOFTBRUSH_LS_BIN")
             .unwrap_or_else(|| env!("CARGO_BIN_EXE_softbrush_ls").into());
         let mut child = Command::new(executable)
+            .args(arguments)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -784,7 +785,7 @@ fn assert_change_and_close_lifecycle(client: &mut LspClient) {
 
 #[test]
 fn validates_every_advertised_lsp_feature_over_stdio() {
-    let mut client = LspClient::start();
+    let mut client = LspClient::start(&[]);
     let initialized = initialize(&mut client);
     assert_initialize_capabilities(&initialized);
     assert_semantic_tokens(&mut client);
@@ -922,4 +923,12 @@ fn assert_option_completion(client: &mut LspClient) {
         );
         close_document(client, uri);
     }
+}
+
+#[test]
+fn accepts_standard_stdio_transport_argument() {
+    let mut client = LspClient::start(&["--stdio"]);
+    let initialized = initialize(&mut client);
+    assert_initialize_capabilities(&initialized);
+    client.shutdown();
 }
