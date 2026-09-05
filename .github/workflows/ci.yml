@@ -66,6 +66,14 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.95.0
       - name: Verify static executable
         run: ./scripts/verify-musl.sh target/x86_64-unknown-linux-musl/release/softbrush_ls
+      - name: Verify release rejects debug token dumps
+        shell: bash
+        run: |
+          status=0
+          target/x86_64-unknown-linux-musl/release/softbrush_ls --dump-tokens tests/fixtures/sdc/edge/token_dump.sdc > dump.stdout 2> dump.stderr || status=$?
+          test "$status" -eq 2
+          test ! -s dump.stdout
+          test -s dump.stderr
       - name: Run end-to-end tests against musl executable
         run: cargo test --locked --test lsp_e2e
         env:

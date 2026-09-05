@@ -9,11 +9,20 @@ This directory implements the server in four capability layers:
   UTF-8/UTF-16 position conversion.
 - `lsp.rs`: protocol conversion and concurrent open-document state.
 
+`lsp/debug_dump.rs` is compiled only with debug assertions. It reports the
+generated lexer's tokens and the same semantic encoder used by the protocol;
+do not implement a second classifier in the dump. `debug_cli.rs` handles files
+before the async LSP runtime starts. Release builds must reject dump arguments.
+
 Keep dependencies flowing in that order. Do not introduce LSP types into the
 parser or analyzer, and do not perform I/O from pure analysis functions.
 Resolve document-local clock references in source order; do not highlight a
 static clock name before its declaration or infer dynamic names from Tcl
 substitutions.
+Only clock-creating commands declare clocks; a generic `-name` option is not a
+declaration. Preserve unclassified literal clock arguments when unresolved,
+including their quoted/braced forms. Default-name inference must be conservative
+when a target query or vendor option has unknown semantics.
 
 All internal source spans are half-open UTF-8 byte ranges on valid character
 boundaries. Convert them to and from zero-based UTF-16 LSP positions only via

@@ -20,6 +20,8 @@ SDC/XDC constraint dialects. It uses an ANTLR4 grammar and the pure-Rust
 
 ## Build targets
 
+For inspecting recognized tokens without an editor, see [debug token dumps](#debug-token-dumps).
+
 The executable uses mimalloc as its global allocator with both supported Linux
 targets. GNU is the recommended development and test target, particularly in
 containers where glibc tooling is expected. Official release artifacts use
@@ -95,6 +97,61 @@ and SHA-256 checksum; GNU binaries remain development artifacts.
 Configure an editor language client to launch `softbrush_ls` over stdio for the
 language IDs `tcl`, `sdc`, and `xdc` and the matching file extensions.
 
+## Debug token dumps
+
+Debug builds provide an offline inspection command, modeled on lapligence's
+`--dump-tokens`. It runs the same analyzer and semantic-token encoder used by
+the language server:
+
+```sh
+cargo run --locked --target x86_64-unknown-linux-gnu -- \
+  --dump-tokens tests/fixtures/sdc/edge/token_dump.sdc
+
+# Multiple files, including shell globs, are accepted in argument order.
+target/x86_64-unknown-linux-gnu/debug/softbrush_ls --dump-tokens constraints/*.sdc
+target/x86_64-unknown-linux-gnu/debug/softbrush_ls --help
+```
+
+Pass `.tcl`, `.sdc`, or `.xdc` files (extensions are case insensitive). Use
+`--dump-tokens -- FILE...` for filenames starting with a dash. Directory
+arguments are not supported. Reports use tab-separated rows under a
+`softbrush.tokenDump/v1` header, with these layers:
+
+- `lexer`: all ANTLR tokens, including whitespace, delimiters, and EOF.
+- `word`: Tcl command names and arguments, with substitution nesting depth.
+- `semantic`: the actual LSP token types and declaration modifiers, interleaved
+  with `unclassified` ranges so missing highlighting is visible.
+- `diagnostic`: source errors and lint messages; the summary also includes the
+  ANTLR parser error count.
+
+Each row contains a half-open UTF-8 byte range, zero-based UTF-16 start/end
+positions, kind, metadata, and Rust debug-escaped source text. Tabs and newlines
+inside source text are escaped. EOF has an empty range. Semantic and lexer rows
+are ordered by source position; word rows group arguments by command, so nested
+commands can overlap their containing word. The output has no timestamps or
+colors and can be saved or diffed. Source errors remain report data (exit 0);
+usage, file, encoding, or output errors go to stderr and exit 2.
+
+The command is compiled only with `debug_assertions` (normal `cargo build` and
+`cargo run`). GNU and musl release builds reject command-line arguments with
+exit 2; no dump implementation is included. Starting with no arguments still
+serves LSP over stdio without printing a token report.
+
+SDC/XDC switches use `parameter`, signed values use `number`, and resolved
+literal clock names use `variable`. Clock lookup is local to the current
+document, case sensitive, and uses preceding `create_clock` or
+`create_generated_clock` declarations. A missing literal name following
+`-clock`, including a quoted or braced name, receives no semantic token.
+The editor's theme and lexical grammar still determine its displayed color.
+Default names can be inferred from a single literal target or a simple
+`[get_ports name]` / `[get_pins name]` query. Wildcard queries, tool-derived
+clocks such as `derive_pll_clocks`, external files, and Tcl evaluation (including
+procedure bodies and dynamically computed names) are not resolved.
+
+Run the CLI regression suite with `cargo test --locked --test dump_tokens`.
+The LSP end-to-end suite compares the dump against tokens served over JSON-RPC
+and checks that deleting a clock definition removes its reference highlighting.
+
 ## Parser generation
 
 Generated Rust lexer/parser sources are committed under `src/generated`, so a
@@ -140,8 +197,8 @@ The generator audit may report unmaintained UNIC crates pulled transitively by
 not linked into `softbrush_ls`; CI still fails on vulnerabilities and
 unsoundness, and Dependabot tracks upstream dependency updates.
 
-The self-contained integration corpus under `tests/fixtures` contains 182
-fixtures, including Tcl 8.6 library samples and 177 supplied SDC/XDC examples.
+The self-contained integration corpus under `tests/fixtures` contains Tcl 8.6
+library samples, 177 supplied SDC/XDC examples, and a token-dump regression input.
 Every fixture is analyzed at the supported layer. Unknown constraint commands
 remain legal because real SDC environments are vendor-extensible.
 

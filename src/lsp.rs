@@ -1,5 +1,9 @@
 //! LSP request handling and conversion from internal byte spans to LSP data.
 
+/// Offline token inspection using the same analysis and token encoder as LSP.
+#[cfg(debug_assertions)]
+pub mod debug_dump;
+
 use std::collections::BTreeSet;
 use std::ops::Range as ByteRange;
 

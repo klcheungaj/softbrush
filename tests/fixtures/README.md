@@ -10,6 +10,10 @@ checkout.
 - `xdc/` contains positive, negative, context-dependent, and unsupported-SDC
   examples.
 
+`sdc/edge/token_dump.sdc` is a project-authored regression for signed numeric
+tokens, Unicode clock names, unresolved and forward references, and vendor
+commands that must not declare clocks. It is used by the dump and LSP tests.
+
 Fixture comments retain their original expected-result descriptions. Corpus
 tests distinguish syntax acceptance from the intentionally conservative lint
 surface; a vendor-specific command is not made a hard error merely because it
@@ -28,4 +32,4 @@ packages supplied for this project. The XDC package was itself based on AMD
 Vivado UG835, UG894, and UG903, while the SDC package was based on an
 Altera/Intel Quartus Prime Timing Analyzer guide. No reference manual text or
 PDF is redistributed here. These project-authored fixtures are covered by the
-repository's MIT license.
+repository's license (see the root `LICENSE`).

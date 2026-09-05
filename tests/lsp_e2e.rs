@@ -504,6 +504,93 @@ fn assert_constraint_semantic_tokens(client: &mut LspClient) {
     close_document(client, SEMANTIC_SDC_URI);
 }
 
+#[cfg(debug_assertions)]
+fn assert_dump_matches_lsp(client: &mut LspClient) {
+    let source = include_str!("fixtures/sdc/edge/token_dump.sdc");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/sdc/edge/token_dump.sdc"
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_softbrush_ls"))
+        .args(["--dump-tokens", fixture])
+        .output()
+        .expect("run token dump");
+    assert!(output.status.success());
+    let report = String::from_utf8(output.stdout).expect("UTF-8 dump");
+    let dumped = report
+        .lines()
+        .filter(|line| line.starts_with("semantic\t"))
+        .map(|line| line.split('\t').collect::<Vec<_>>())
+        .filter(|columns| columns[3] != "unclassified")
+        .map(|columns| {
+            (
+                columns[2].to_owned(),
+                columns[3].to_owned(),
+                columns[4].to_owned(),
+                columns[5].to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (uri, language) in [
+        ("file:///tmp/token_audit.sdc", "sdc"),
+        ("file:///tmp/token_audit.xdc", "xdc"),
+    ] {
+        open_document(client, uri, language, source);
+        let response = client.request(
+            "textDocument/semanticTokens/full",
+            &json!({"textDocument": {"uri": uri}}),
+        );
+        let legend = [
+            "comment",
+            "string",
+            "number",
+            "variable",
+            "function",
+            "keyword",
+            "operator",
+            "parameter",
+            "namespace",
+        ];
+        let observed = decode_semantic_tokens(&response)
+            .iter()
+            .map(|token| {
+                (
+                    format!(
+                        "{}:{}-{}:{}",
+                        token.line,
+                        token.start,
+                        token.line,
+                        token.start + token.length
+                    ),
+                    legend[token.token_type as usize].to_owned(),
+                    if token.modifiers == 0 {
+                        "-"
+                    } else {
+                        "declaration"
+                    }
+                    .to_owned(),
+                    format!("{:?}", token_text(source, token)),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observed, dumped);
+        // Reanalysis must not keep clock bindings after the definition is edited.
+        let edited = source.replace("create_clock -name clk_😀 -period 10", "# clock deleted");
+        client.notify("textDocument/didChange", &json!({"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": edited}]}));
+        client.wait_for_notification("textDocument/publishDiagnostics", uri);
+        let response = client.request(
+            "textDocument/semanticTokens/full",
+            &json!({"textDocument": {"uri": uri}}),
+        );
+        assert!(
+            !decode_semantic_tokens(&response)
+                .iter()
+                .any(|token| token.token_type == 3 && token_text(&edited, token) == "clk_😀")
+        );
+        close_document(client, uri);
+    }
+}
+
 fn assert_document_symbols(client: &mut LspClient, uri: &str, expected: &[Value]) {
     let response = client.request(
         "textDocument/documentSymbol",
@@ -698,6 +785,8 @@ fn validates_every_advertised_lsp_feature_over_stdio() {
     assert_initialize_capabilities(&initialized);
     assert_semantic_tokens(&mut client);
     assert_constraint_semantic_tokens(&mut client);
+    #[cfg(debug_assertions)]
+    assert_dump_matches_lsp(&mut client);
     assert_diagnostic_protocol(&mut client);
     assert_symbol_providers(&mut client);
     assert_hover_and_completion(&mut client);
