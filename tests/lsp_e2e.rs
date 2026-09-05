@@ -37,7 +37,7 @@ const XDC_SOURCE: &str = concat!(
 );
 const SEMANTIC_SDC_SOURCE: &str = concat!(
     "create_clock -name sys_clk -period 10\r\n",
-    "set_input_delay -clock_fall -clock sys_clk -max -1.25 [get_ports din]\r\n",
+    "set_input_delay -clock_fall -clock sys_clk -max -1.25 [get_ports {din}]\r\n",
     "set_output_delay -clock missing_clk -min +0.5 [get_ports dout]\r\n",
 );
 
@@ -483,20 +483,23 @@ fn assert_constraint_semantic_tokens(client: &mut LspClient) {
         observed,
         [
             (0, 4, 0, "create_clock".to_owned()),
-            (0, 7, 0, "-name".to_owned()),
+            (0, 5, 0, "-name".to_owned()),
             (0, 3, 1, "sys_clk".to_owned()),
-            (0, 7, 0, "-period".to_owned()),
+            (0, 5, 0, "-period".to_owned()),
             (0, 2, 0, "10".to_owned()),
             (1, 4, 0, "set_input_delay".to_owned()),
-            (1, 7, 0, "-clock_fall".to_owned()),
-            (1, 7, 0, "-clock".to_owned()),
+            (1, 5, 0, "-clock_fall".to_owned()),
+            (1, 5, 0, "-clock".to_owned()),
             (1, 3, 0, "sys_clk".to_owned()),
-            (1, 7, 0, "-max".to_owned()),
+            (1, 5, 0, "-max".to_owned()),
             (1, 2, 0, "-1.25".to_owned()),
             (1, 4, 0, "get_ports".to_owned()),
+            (1, 6, 0, "{".to_owned()),
+            (1, 1, 0, "din".to_owned()),
+            (1, 6, 0, "}".to_owned()),
             (2, 4, 0, "set_output_delay".to_owned()),
-            (2, 7, 0, "-clock".to_owned()),
-            (2, 7, 0, "-min".to_owned()),
+            (2, 5, 0, "-clock".to_owned()),
+            (2, 5, 0, "-min".to_owned()),
             (2, 2, 0, "+0.5".to_owned()),
             (2, 4, 0, "get_ports".to_owned()),
         ]

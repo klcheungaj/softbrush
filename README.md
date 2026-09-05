@@ -137,11 +137,14 @@ The command is compiled only with `debug_assertions` (normal `cargo build` and
 exit 2; no dump implementation is included. Starting with no arguments still
 serves LSP over stdio without printing a token report.
 
-SDC/XDC switches use `parameter`, signed values use `number`, and resolved
+SDC/XDC switches use `keyword`, brace delimiters use `operator`, signed values
+use `number`, and resolved
 literal clock names use `variable`. Clock lookup is local to the current
 document, case sensitive, and uses preceding `create_clock` or
 `create_generated_clock` declarations. A missing literal name following
-`-clock`, including a quoted or braced name, receives no semantic token.
+`-clock`, including the contents of a quoted or braced name, receives no
+semantic token. Braces remain separately classified. This gives options and
+braces distinct semantic categories from signal names and string contents.
 The editor's theme and lexical grammar still determine its displayed color.
 Default names can be inferred from a single literal target or a simple
 `[get_ports name]` / `[get_pins name]` query. Wildcard queries, tool-derived

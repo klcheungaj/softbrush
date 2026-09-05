@@ -181,7 +181,7 @@ fn highlights_constraint_options_and_signed_numeric_values() {
         let options = analysis
             .semantic_spans
             .iter()
-            .filter(|semantic| semantic.kind == SemanticKind::Parameter && !semantic.declaration)
+            .filter(|semantic| semantic.kind == SemanticKind::Keyword && !semantic.declaration)
             .map(|semantic| &source[semantic.span.clone()])
             .collect::<Vec<_>>();
         let numbers = analysis
@@ -293,7 +293,8 @@ fn does_not_invent_clock_definitions_or_color_unresolved_literal_names() {
                 !analysis
                     .semantic_spans
                     .iter()
-                    .any(|span| span.span.start < start + name.len() && span.span.end > start)
+                    .any(|span| span.span.start < start + name.len() - 1
+                        && span.span.end > start + 1)
             );
         }
     }
@@ -331,4 +332,34 @@ fn distinguishes_clock_arguments_from_query_options_and_timing_values() {
             .count(),
         3
     );
+}
+
+#[test]
+fn separates_constraint_braces_from_contents_without_coloring_escaped_braces() {
+    let source = "get_ports {din {nested} escaped\\{brace\\}}\r\nget_pins {😀\r\nq}\r\nget_ports {";
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let braces = analysis
+            .semantic_spans
+            .iter()
+            .filter(|token| token.kind == SemanticKind::Operator)
+            .map(|token| &source[token.span.clone()])
+            .collect::<Vec<_>>();
+        assert_eq!(braces, ["{", "{", "}", "}", "{", "}", "{"]);
+        for text in ["din ", "nested", " escaped\\{brace\\}", "😀\r\nq"] {
+            assert!(
+                analysis
+                    .semantic_spans
+                    .iter()
+                    .any(|token| token.kind == SemanticKind::String
+                        && &source[token.span.clone()] == text)
+            );
+        }
+        assert!(
+            analysis
+                .semantic_spans
+                .windows(2)
+                .all(|pair| pair[0].span.end <= pair[1].span.start)
+        );
+    }
 }

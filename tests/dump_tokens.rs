@@ -76,7 +76,7 @@ mod debug {
             assert_eq!(end, source.len());
         }
         assert!(first.contains("\t2:35-2:41\tvariable\t-\t\"clk_😀\""));
-        assert!(first.contains("\tparameter\t-\t\"-clock_fall\""));
+        assert!(first.contains("\tkeyword\t-\t\"-clock_fall\""));
         assert!(first.contains("\tnumber\t-\t\"-1.25\""));
         assert!(first.contains("\tnumber\t-\t\"+.5\""));
         assert!(first.contains("\tnumber\t-\t\"-2e-3\""));

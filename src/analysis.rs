@@ -45,11 +45,11 @@ pub enum SemanticKind {
     Variable,
     /// Command or procedure name.
     Function,
-    /// Tcl control-flow keyword.
+    /// Tcl control-flow keyword or SDC/XDC command option.
     Keyword,
-    /// Tcl expression operator or Tcl command option.
+    /// Tcl expression operator, Tcl command option, or constraint brace delimiter.
     Operator,
-    /// Procedure parameter declaration or SDC/XDC command option.
+    /// Procedure parameter declaration.
     Parameter,
     /// Namespace declaration.
     Namespace,
@@ -154,6 +154,9 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
     }
     classify_arguments(&syntax.commands, dialect, &mut semantic_spans);
     let clock_words = classify_clock_references(&syntax.commands, dialect, &mut semantic_spans);
+    if dialect != Dialect::Tcl {
+        classify_braces(source, &syntax, &mut semantic_spans);
+    }
     classify_strings(&syntax, &clock_words, &mut semantic_spans);
     remove_overlapping_spans(&mut semantic_spans);
 
@@ -164,6 +167,29 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
         diagnostics,
         semantic_spans,
         symbols,
+    }
+}
+
+fn classify_braces(source: &str, syntax: &SyntaxModel, spans: &mut Vec<SemanticSpan>) {
+    for string in &syntax.strings {
+        let text = &source[string.clone()];
+        if !text.starts_with('{') {
+            continue;
+        }
+        let mut escaped = false;
+        for (offset, ch) in text.char_indices() {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if matches!(ch, '{' | '}') {
+                spans.push(SemanticSpan {
+                    span: string.start + offset..string.start + offset + 1,
+                    kind: SemanticKind::Operator,
+                    declaration: false,
+                });
+            }
+        }
     }
 }
 
@@ -530,7 +556,7 @@ fn classify_arguments(commands: &[Command], dialect: Dialect, spans: &mut Vec<Se
                     kind: if dialect == Dialect::Tcl {
                         SemanticKind::Operator
                     } else {
-                        SemanticKind::Parameter
+                        SemanticKind::Keyword
                     },
                     declaration: false,
                 });
