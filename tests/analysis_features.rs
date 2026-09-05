@@ -167,3 +167,89 @@ fn selects_dialect_case_insensitively_from_file_extension() {
     assert_eq!(Dialect::from_uri_path("/work/top.SDC"), Dialect::Sdc);
     assert_eq!(Dialect::from_uri_path("/work/top.XDC"), Dialect::Xdc);
 }
+
+#[test]
+fn highlights_constraint_options_and_signed_numeric_values() {
+    let source = concat!(
+        "set_input_delay -clock_fall -clock sys_clk -max -1.25 [get_ports din]\n",
+        "set_output_delay -clock sys_clk -min +0.5 [get_ports dout]\n",
+        "vendor_constraint -vendor_option -2e-3\n",
+    );
+
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let options = analysis
+            .semantic_spans
+            .iter()
+            .filter(|semantic| semantic.kind == SemanticKind::Parameter && !semantic.declaration)
+            .map(|semantic| &source[semantic.span.clone()])
+            .collect::<Vec<_>>();
+        let numbers = analysis
+            .semantic_spans
+            .iter()
+            .filter(|semantic| semantic.kind == SemanticKind::Number)
+            .map(|semantic| &source[semantic.span.clone()])
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            options,
+            [
+                "-clock_fall",
+                "-clock",
+                "-max",
+                "-clock",
+                "-min",
+                "-vendor_option"
+            ]
+        );
+        assert_eq!(numbers, ["-1.25", "+0.5", "-2e-3"]);
+    }
+}
+
+#[test]
+fn highlights_only_clock_references_defined_earlier_in_the_document() {
+    let source = concat!(
+        "set_input_delay -clock future_clk -max 1 din\n",
+        "create_clock -name base_clk -period 10\n",
+        "set_input_delay -clock base_clk -min -0.5 din\n",
+        "set_input_delay -clock { base_clk } -max 1 din\n",
+        "create_generated_clock -name divided_clk -source pin -master_clock base_clk out\n",
+        "set_output_delay -clock divided_clk -max 2 dout\n",
+        "create_clock -period 8 direct_clk\n",
+        "set_output_delay -clock direct_clk -min 1 dout\n",
+        "create_clock -period 6 [get_ports inferred_clk]\n",
+        "set_input_delay -clock inferred_clk -max 1 din\n",
+        "set_input_delay -clock missing_clk -max 1 din\n",
+    );
+
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let clock_tokens = analysis
+            .semantic_spans
+            .iter()
+            .filter(|semantic| semantic.kind == SemanticKind::Variable)
+            .map(|semantic| (&source[semantic.span.clone()], semantic.declaration))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            clock_tokens,
+            [
+                ("base_clk", true),
+                ("base_clk", false),
+                ("base_clk", false),
+                ("divided_clk", true),
+                ("base_clk", false),
+                ("divided_clk", false),
+                ("direct_clk", true),
+                ("direct_clk", false),
+                ("inferred_clk", true),
+                ("inferred_clk", false),
+            ]
+        );
+        assert!(
+            !clock_tokens
+                .iter()
+                .any(|(text, _)| { matches!(*text, "future_clk" | "missing_clk") })
+        );
+    }
+}

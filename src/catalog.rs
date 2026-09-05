@@ -321,6 +321,68 @@ pub const XDC_COMMANDS: &[&str] = &[
     "update_macro",
 ];
 
+/// Reports whether an option accepts a clock name in common SDC/XDC dialects.
+///
+/// Endpoint options are included only on commands where the reference manuals
+/// permit clocks. A matched name is still treated as a reference only when a
+/// preceding clock declaration resolves it.
+pub(crate) fn option_accepts_clock_name(command: &str, option: &str) -> bool {
+    if matches!(
+        option,
+        "-clock"
+            | "-clocks"
+            | "-master_clock"
+            | "-from_clock"
+            | "-rise_from_clock"
+            | "-fall_from_clock"
+            | "-to_clock"
+            | "-rise_to_clock"
+            | "-fall_to_clock"
+            | "-rise_clock"
+            | "-fall_clock"
+    ) {
+        return true;
+    }
+
+    if option == "-group" {
+        return command == "set_clock_groups";
+    }
+
+    matches!(
+        command,
+        "group_path"
+            | "set_bus_skew"
+            | "set_clock_uncertainty"
+            | "set_false_path"
+            | "set_max_delay"
+            | "set_min_delay"
+            | "set_multicycle_path"
+    ) && matches!(
+        option,
+        "-from"
+            | "-rise_from"
+            | "-fall_from"
+            | "-to"
+            | "-rise_to"
+            | "-fall_to"
+            | "-through"
+            | "-rise_through"
+            | "-fall_through"
+    )
+}
+
+/// Reports whether a command's positional arguments may name clocks.
+pub(crate) fn positional_arguments_accept_clock_names(command: &str) -> bool {
+    matches!(
+        command,
+        "get_clocks"
+            | "set_clock_latency"
+            | "set_clock_uncertainty"
+            | "set_input_jitter"
+            | "set_propagated_clock"
+    )
+}
+
 /// Iterates over Tcl commands and commands specific to `dialect`.
 pub fn commands(dialect: Dialect) -> impl Iterator<Item = &'static str> {
     let dialect_commands = match dialect {

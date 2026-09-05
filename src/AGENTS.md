@@ -2,7 +2,8 @@
 
 This directory implements the server in four capability layers:
 
-- `catalog.rs`: static, intentionally incomplete Tcl/SDC/XDC knowledge.
+- `catalog.rs`: static, intentionally incomplete Tcl/SDC/XDC command and
+  argument-role knowledge.
 - `syntax.rs`: ANTLR recognition plus tolerant editor-oriented source spans.
 - `analysis.rs`: pure diagnostics, semantic classifications, symbols, and
   UTF-8/UTF-16 position conversion.
@@ -10,6 +11,9 @@ This directory implements the server in four capability layers:
 
 Keep dependencies flowing in that order. Do not introduce LSP types into the
 parser or analyzer, and do not perform I/O from pure analysis functions.
+Resolve document-local clock references in source order; do not highlight a
+static clock name before its declaration or infer dynamic names from Tcl
+substitutions.
 
 All internal source spans are half-open UTF-8 byte ranges on valid character
 boundaries. Convert them to and from zero-based UTF-16 LSP positions only via

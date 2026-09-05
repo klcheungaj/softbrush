@@ -1,5 +1,6 @@
 //! Pure semantic analysis, diagnostics, symbols, and source-position mapping.
 
+use std::collections::HashSet;
 use std::ops::Range;
 
 use crate::catalog::{self, Dialect, TCL_KEYWORDS};
@@ -46,9 +47,9 @@ pub enum SemanticKind {
     Function,
     /// Tcl control-flow keyword.
     Keyword,
-    /// Command option or expression operator.
+    /// Tcl expression operator or Tcl command option.
     Operator,
-    /// Procedure parameter declaration.
+    /// Procedure parameter declaration or SDC/XDC command option.
     Parameter,
     /// Namespace declaration.
     Namespace,
@@ -111,7 +112,9 @@ pub struct Analysis {
 /// Parses and analyzes source according to the selected Tcl-based dialect.
 ///
 /// Constraint command catalogs are intentionally advisory: unknown SDC and XDC
-/// commands produce hints because vendor extensions are common.
+/// commands produce hints because vendor extensions are common. Constraint
+/// switches and signed numeric values receive semantic classifications. Static
+/// clock names are classified as references only after an earlier declaration.
 #[must_use]
 pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
     let syntax = parse(source);
@@ -137,7 +140,6 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
         kind: SemanticKind::Comment,
         declaration: false,
     }));
-    classify_strings(&syntax, &mut semantic_spans);
     semantic_spans.extend(syntax.variables.iter().cloned().map(|span| SemanticSpan {
         span,
         kind: SemanticKind::Variable,
@@ -147,10 +149,12 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
     let mut symbols = Vec::new();
     for command in &syntax.commands {
         classify_command(command, &mut semantic_spans);
-        extract_symbol(command, &mut symbols, &mut semantic_spans);
+        extract_symbol(command, &syntax.commands, &mut symbols, &mut semantic_spans);
         classify_procedure_parameters(source, command, &mut semantic_spans);
     }
-    classify_arguments(&syntax.commands, &mut semantic_spans);
+    classify_arguments(&syntax.commands, dialect, &mut semantic_spans);
+    classify_clock_references(&syntax.commands, dialect, &mut semantic_spans);
+    classify_strings(&syntax, &mut semantic_spans);
     remove_overlapping_spans(&mut semantic_spans);
 
     diagnostics.sort_by_key(|diagnostic| (diagnostic.span.start, diagnostic.span.end));
@@ -171,25 +175,30 @@ fn is_procedure_argument_list(commands: &[Command], span: &Range<usize>) -> bool
 }
 
 fn classify_strings(syntax: &SyntaxModel, spans: &mut Vec<SemanticSpan>) {
+    let mut protected = spans
+        .iter()
+        .map(|semantic| semantic.span.clone())
+        .collect::<Vec<_>>();
+    protected.sort_by_key(|span| (span.start, span.end));
+
     for string in syntax
         .strings
         .iter()
         .filter(|span| !is_procedure_argument_list(&syntax.commands, span))
     {
         let mut segment_start = string.start;
-        for variable in syntax
-            .variables
+        for semantic in protected
             .iter()
-            .filter(|variable| variable.start >= string.start && variable.end <= string.end)
+            .filter(|semantic| semantic.start >= string.start && semantic.end <= string.end)
         {
-            if segment_start < variable.start {
+            if segment_start < semantic.start {
                 spans.push(SemanticSpan {
-                    span: segment_start..variable.start,
+                    span: segment_start..semantic.start,
                     kind: SemanticKind::String,
                     declaration: false,
                 });
             }
-            segment_start = segment_start.max(variable.end);
+            segment_start = segment_start.max(semantic.end);
         }
         if segment_start < string.end {
             spans.push(SemanticSpan {
@@ -497,16 +506,10 @@ fn classify_command(command: &Command, spans: &mut Vec<SemanticSpan>) {
     });
 }
 
-fn classify_arguments(commands: &[Command], spans: &mut Vec<SemanticSpan>) {
+fn classify_arguments(commands: &[Command], dialect: Dialect, spans: &mut Vec<SemanticSpan>) {
     for command in commands {
         for word in command.words.iter().skip(1) {
-            if word.text.starts_with('-') && word.plain_text().is_some() {
-                spans.push(SemanticSpan {
-                    span: word.span.clone(),
-                    kind: SemanticKind::Operator,
-                    declaration: false,
-                });
-            } else if word
+            if word
                 .plain_text()
                 .and_then(|text| text.parse::<f64>().ok())
                 .is_some()
@@ -516,15 +519,104 @@ fn classify_arguments(commands: &[Command], spans: &mut Vec<SemanticSpan>) {
                     kind: SemanticKind::Number,
                     declaration: false,
                 });
+            } else if word.text.starts_with('-') && word.plain_text().is_some() {
+                spans.push(SemanticSpan {
+                    span: word.span.clone(),
+                    kind: if dialect == Dialect::Tcl {
+                        SemanticKind::Operator
+                    } else {
+                        SemanticKind::Parameter
+                    },
+                    declaration: false,
+                });
             }
         }
     }
 }
 
-fn extract_symbol(command: &Command, symbols: &mut Vec<Symbol>, spans: &mut Vec<SemanticSpan>) {
+fn classify_clock_references(
+    commands: &[Command],
+    dialect: Dialect,
+    spans: &mut Vec<SemanticSpan>,
+) {
+    if dialect == Dialect::Tcl {
+        return;
+    }
+
+    let mut ordered_commands = commands.iter().collect::<Vec<_>>();
+    ordered_commands.sort_by_key(|command| (command.span.start, command.nesting, command.span.end));
+    let mut declared_clocks = HashSet::new();
+
+    for command in ordered_commands {
+        let Some(name) = command.name() else {
+            continue;
+        };
+        for pair in command.words[1..].windows(2) {
+            if pair[0]
+                .plain_text()
+                .is_some_and(|option| catalog::option_accepts_clock_name(name, option))
+            {
+                classify_clock_reference(&pair[1], &declared_clocks, spans);
+            }
+        }
+        if catalog::positional_arguments_accept_clock_names(name) {
+            for word in command.words.iter().skip(1) {
+                if !word.text.starts_with('-') {
+                    classify_clock_reference(word, &declared_clocks, spans);
+                }
+            }
+        }
+        if let Some((clock_name, _)) = clock_definition(command, commands) {
+            declared_clocks.insert(clock_name);
+        }
+    }
+}
+
+fn classify_clock_reference(
+    word: &Word,
+    declared_clocks: &HashSet<String>,
+    spans: &mut Vec<SemanticSpan>,
+) {
+    let Some((name, span)) = static_word_value(word) else {
+        return;
+    };
+    if declared_clocks.contains(&name) {
+        spans.push(SemanticSpan {
+            span,
+            kind: SemanticKind::Variable,
+            declaration: false,
+        });
+    }
+}
+
+fn extract_symbol(
+    command: &Command,
+    commands: &[Command],
+    symbols: &mut Vec<Symbol>,
+    spans: &mut Vec<SemanticSpan>,
+) {
     let Some(name) = command.name() else {
         return;
     };
+    if matches!(name, "create_clock" | "create_generated_clock") {
+        let Some((symbol_name, selection_span)) = clock_definition(command, commands) else {
+            return;
+        };
+        symbols.push(Symbol {
+            name: symbol_name,
+            detail: "Timing clock",
+            kind: SymbolKind::Clock,
+            span: command.span.clone(),
+            selection_span: selection_span.clone(),
+        });
+        spans.push(SemanticSpan {
+            span: selection_span,
+            kind: SemanticKind::Variable,
+            declaration: true,
+        });
+        return;
+    }
+
     let (word, kind, detail, semantic_kind) = match name {
         "proc" => (
             command.words.get(1),
@@ -548,12 +640,6 @@ fn extract_symbol(command: &Command, symbols: &mut Vec<Symbol>, spans: &mut Vec<
             command.words.get(1),
             SymbolKind::Variable,
             "Tcl variable",
-            SemanticKind::Variable,
-        ),
-        "create_clock" | "create_generated_clock" => (
-            named_or_last_word(command, "-name"),
-            SymbolKind::Clock,
-            "Timing clock",
             SemanticKind::Variable,
         ),
         "create_pblock" | "create_macro" | "create_debug_core" => (
@@ -585,15 +671,92 @@ fn extract_symbol(command: &Command, symbols: &mut Vec<Symbol>, spans: &mut Vec<
     });
 }
 
-fn named_or_last_word<'a>(command: &'a Command, option: &str) -> Option<&'a Word> {
-    option_index(command, option)
-        .and_then(|index| command.words.get(index + 1))
+fn clock_definition(command: &Command, commands: &[Command]) -> Option<(String, Range<usize>)> {
+    if let Some(name_index) = option_index(command, "-name") {
+        return command
+            .words
+            .get(name_index + 1)
+            .and_then(static_word_value);
+    }
+
+    let target = trailing_clock_target(command)?;
+    static_word_value(target).or_else(|| {
+        commands
+            .iter()
+            .filter(|nested| {
+                nested.nesting > command.nesting
+                    && nested.span.start >= target.span.start
+                    && nested.span.end <= target.span.end
+                    && matches!(nested.name(), Some("get_ports" | "get_pins" | "get_clocks"))
+            })
+            .max_by_key(|nested| nested.span.start)
+            .and_then(|nested| nested.words.last())
+            .and_then(static_word_value)
+    })
+}
+
+fn trailing_clock_target(command: &Command) -> Option<&Word> {
+    let value_options: &[&str] = match command.name()? {
+        "create_clock" => &["-name", "-period", "-waveform"],
+        "create_generated_clock" => &[
+            "-name",
+            "-source",
+            "-edges",
+            "-divide_by",
+            "-multiply_by",
+            "-duty_cycle",
+            "-edge_shift",
+            "-master_clock",
+        ],
+        _ => return None,
+    };
+
+    let mut target = None;
+    let mut index = 1;
+    while let Some(word) = command.words.get(index) {
+        if word
+            .plain_text()
+            .is_some_and(|text| value_options.contains(&text))
+        {
+            index += 2;
+        } else {
+            if !word.text.starts_with('-') {
+                target = Some(word);
+            }
+            index += 1;
+        }
+    }
+    target
+}
+
+fn static_word_value(word: &Word) -> Option<(String, Range<usize>)> {
+    if let Some(text) = word.plain_text() {
+        return Some((text.to_owned(), word.span.clone()));
+    }
+
+    let (content, permits_substitution) = word
+        .text
+        .strip_prefix('{')
+        .and_then(|text| text.strip_suffix('}'))
+        .map(|text| (text, false))
         .or_else(|| {
-            command
-                .words
-                .last()
-                .filter(|word| !word.text.starts_with('-'))
-        })
+            word.text
+                .strip_prefix('"')
+                .and_then(|text| text.strip_suffix('"'))
+                .map(|text| (text, true))
+        })?;
+    if content.contains('\\')
+        || (permits_substitution && (content.contains('$') || content.contains('[')))
+    {
+        return None;
+    }
+    let value = content.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let relative_start = word.text.find(value)?;
+    let start = word.span.start + relative_start;
+    Some((value.to_owned(), start..(start + value.len())))
 }
 
 fn remove_overlapping_spans(spans: &mut Vec<SemanticSpan>) {

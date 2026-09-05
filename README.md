@@ -8,7 +8,8 @@ SDC/XDC constraint dialects. It uses an ANTLR4 grammar and the pure-Rust
 
 - `.tcl`, `.sdc`, and `.xdc` documents over standard LSP stdio
 - semantic highlighting for commands, Tcl keywords, variables, strings,
-  numbers, options, namespaces, and comments
+  signed numbers, SDC/XDC options, namespaces, comments, and clock references
+  that resolve to earlier clock declarations
 - delimiter/substitution syntax errors and basic Tcl command linting
 - intentionally tolerant SDC/XDC catalog checks, reported as hints
 - high-confidence checks for common clock, delay, and multicycle mistakes
@@ -149,7 +150,8 @@ The test suite covers:
 - ANTLR and tolerant-parser acceptance across the valid Tcl/SDC/XDC corpus
 - syntax recovery (including excessive nesting), continuation, command, and
   constraint-value failures
-- every semantic-token and symbol category
+- every semantic-token and symbol category, including SDC/XDC switches, signed
+  numeric values, and source-ordered clock references
 - exact UTF-16 semantic/diagnostic ranges across Unicode, CRLF, and multiline
   source, plus dialect selection
 - a real `softbrush_ls` child process over framed JSON-RPC, including all

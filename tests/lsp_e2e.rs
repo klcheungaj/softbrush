@@ -11,6 +11,7 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const TCL_URI: &str = "file:///tmp/softbrush_e2e.tcl";
 const SDC_URI: &str = "file:///tmp/softbrush_e2e.sdc";
 const XDC_URI: &str = "file:///tmp/softbrush_e2e.xdc";
+const SEMANTIC_SDC_URI: &str = "file:///tmp/softbrush_semantic.sdc";
 
 const TCL_SOURCE: &str = concat!(
     "# 😀 heading\r\n",
@@ -33,6 +34,11 @@ const VALID_SDC_SOURCE: &str = concat!(
 const XDC_SOURCE: &str = concat!(
     "create_pblock region_😀\r\n",
     "create_clock -name sys_clk -period 10 [get_ports clk]\r\n",
+);
+const SEMANTIC_SDC_SOURCE: &str = concat!(
+    "create_clock -name sys_clk -period 10\r\n",
+    "set_input_delay -clock_fall -clock sys_clk -max -1.25 [get_ports din]\r\n",
+    "set_output_delay -clock missing_clk -min +0.5 [get_ports dout]\r\n",
 );
 
 struct LspClient {
@@ -454,6 +460,50 @@ fn assert_semantic_tokens(client: &mut LspClient) {
     );
 }
 
+fn assert_constraint_semantic_tokens(client: &mut LspClient) {
+    let published = open_document(client, SEMANTIC_SDC_URI, "sdc", SEMANTIC_SDC_SOURCE);
+    assert!(diagnostics(&published).is_empty());
+    let response = client.request(
+        "textDocument/semanticTokens/full",
+        &json!({"textDocument": {"uri": SEMANTIC_SDC_URI}}),
+    );
+    let observed = decode_semantic_tokens(&response)
+        .iter()
+        .map(|token| {
+            (
+                token.line,
+                token.token_type,
+                token.modifiers,
+                token_text(SEMANTIC_SDC_SOURCE, token),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        observed,
+        [
+            (0, 4, 0, "create_clock".to_owned()),
+            (0, 7, 0, "-name".to_owned()),
+            (0, 3, 1, "sys_clk".to_owned()),
+            (0, 7, 0, "-period".to_owned()),
+            (0, 2, 0, "10".to_owned()),
+            (1, 4, 0, "set_input_delay".to_owned()),
+            (1, 7, 0, "-clock_fall".to_owned()),
+            (1, 7, 0, "-clock".to_owned()),
+            (1, 3, 0, "sys_clk".to_owned()),
+            (1, 7, 0, "-max".to_owned()),
+            (1, 2, 0, "-1.25".to_owned()),
+            (1, 4, 0, "get_ports".to_owned()),
+            (2, 4, 0, "set_output_delay".to_owned()),
+            (2, 7, 0, "-clock".to_owned()),
+            (2, 7, 0, "-min".to_owned()),
+            (2, 2, 0, "+0.5".to_owned()),
+            (2, 4, 0, "get_ports".to_owned()),
+        ]
+    );
+    close_document(client, SEMANTIC_SDC_URI);
+}
+
 fn assert_document_symbols(client: &mut LspClient, uri: &str, expected: &[Value]) {
     let response = client.request(
         "textDocument/documentSymbol",
@@ -647,6 +697,7 @@ fn validates_every_advertised_lsp_feature_over_stdio() {
     let initialized = initialize(&mut client);
     assert_initialize_capabilities(&initialized);
     assert_semantic_tokens(&mut client);
+    assert_constraint_semantic_tokens(&mut client);
     assert_diagnostic_protocol(&mut client);
     assert_symbol_providers(&mut client);
     assert_hover_and_completion(&mut client);
