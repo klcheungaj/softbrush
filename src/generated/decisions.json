@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "fixedLookahead": null,
+  "grammars": [
+    {
+      "name": "TclParser",
+      "summary": {
+        "total": 7,
+        "ll1": 7,
+        "fixed": 0,
+        "adaptive": 0
+      },
+      "decisions": [
+        {
+          "decision": 0,
+          "rule": "script",
+          "state": 19,
+          "canDefer": false,
+          "tier": "ll1"
+        },
+        {
+          "decision": 1,
+          "rule": "scriptItem",
+          "state": 28,
+          "canDefer": false,
+          "tier": "ll1"
+        },
+        {
+          "decision": 2,
+          "rule": "bracedWord",
+          "state": 34,
+          "canDefer": false,
+          "tier": "ll1"
+        },
+        {
+          "decision": 3,
+          "rule": "bracedItem",
+          "state": 44,
+          "canDefer": false,
+          "tier": "ll1"
+        },
+        {
+          "decision": 4,
+          "rule": "quotedWord",
+          "state": 50,
+          "canDefer": false,
+          "tier": "ll1"
+        },
+        {
+          "decision": 5,
+          "rule": "quotedItem",
+          "state": 60,
+          "canDefer": false,
+          "tier": "ll1"
+        },
+        {
+          "decision": 6,
+          "rule": "commandSubstitution",
+          "state": 66,
+          "canDefer": false,
+          "tier": "ll1"
+        }
+      ]
+    }
+  ]
+}
