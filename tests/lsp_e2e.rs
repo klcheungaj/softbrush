@@ -265,6 +265,7 @@ fn assert_initialize_capabilities(initialized: &Value) {
         Some(&json!(true))
     );
     assert_eq!(capabilities.get("hoverProvider"), Some(&json!(true)));
+    assert_eq!(capabilities.get("definitionProvider"), Some(&json!(true)));
     assert_eq!(
         capabilities.get("completionProvider"),
         Some(&json!({"triggerCharacters": ["-"]}))
@@ -793,6 +794,77 @@ fn validates_every_advertised_lsp_feature_over_stdio() {
     assert_diagnostic_protocol(&mut client);
     assert_symbol_providers(&mut client);
     assert_hover_and_completion(&mut client);
+    assert_clock_navigation(&mut client);
     assert_change_and_close_lifecycle(&mut client);
     client.shutdown();
+}
+
+fn assert_clock_navigation(client: &mut LspClient) {
+    let source = concat!(
+        "create_clock -name {clk_😀} -period 10\r\n",
+        "create_generated_clock -name divided -source pin -master_clock clk_😀 out\r\n",
+        "set_input_delay -clock clk_😀 1 din\r\n",
+        "set_output_delay -clock {divided} 1 dout\r\n",
+        "set_input_delay -clock \"clk_😀\" 1 din\r\n",
+        "set_input_delay -clock missing 1 din",
+    );
+    for (uri, language) in [
+        ("file:///tmp/navigation.sdc", "sdc"),
+        ("file:///tmp/navigation.xdc", "xdc"),
+    ] {
+        open_document(client, uri, language, source);
+        for (line, character, target_line, start, end) in [
+            (1, 64, 0, 20, 26),
+            (2, 23, 0, 20, 26),
+            (3, 25, 1, 29, 36),
+            (4, 24, 0, 20, 26),
+        ] {
+            let response = client.request(
+                "textDocument/definition",
+                &json!({
+                    "textDocument": {"uri": uri}, "position": {"line": line, "character": character}
+                }),
+            );
+            assert_eq!(
+                response.get("result"),
+                Some(&json!({
+                    "uri": uri, "range": {
+                        "start": {"line": target_line, "character": start},
+                        "end": {"line": target_line, "character": end}
+                    }
+                })),
+                "{language} reference on line {line}"
+            );
+        }
+        let response = client.request(
+            "textDocument/definition",
+            &json!({
+                "textDocument": {"uri": uri}, "position": {"line": 5, "character": 24}
+            }),
+        );
+        assert_eq!(response.get("result"), Some(&Value::Null));
+        client.notify(
+            "textDocument/didChange",
+            &json!({
+                "textDocument": {"uri": uri, "version": 2},
+                "contentChanges": [{"text": source.replacen("create_clock", "vendor_clock", 1)}]
+            }),
+        );
+        client.wait_for_notification("textDocument/publishDiagnostics", uri);
+        let response = client.request(
+            "textDocument/definition",
+            &json!({
+                "textDocument": {"uri": uri}, "position": {"line": 2, "character": 23}
+            }),
+        );
+        assert_eq!(response.get("result"), Some(&Value::Null));
+        close_document(client, uri);
+        let response = client.request(
+            "textDocument/definition",
+            &json!({
+                "textDocument": {"uri": uri}, "position": {"line": 3, "character": 25}
+            }),
+        );
+        assert_eq!(response.get("result"), Some(&Value::Null));
+    }
 }

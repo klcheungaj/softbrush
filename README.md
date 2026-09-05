@@ -16,6 +16,7 @@ SDC/XDC constraint dialects. It uses an ANTLR4 grammar and the pure-Rust
 - document and workspace symbols for procedures, namespaces, variables,
   clocks, Pblocks, macros, and debug cores
 - command completion and hover help
+- go-to-definition for document-local clock references
 - UTF-16-correct LSP positions
 
 ## Build targets
@@ -151,6 +152,10 @@ Default names can be inferred from a single literal target or a simple
 clocks such as `derive_pll_clocks`, external files, and Tcl evaluation (including
 procedure bodies and dynamically computed names) are not resolved.
 
+Go-to-definition uses the same clock resolution as highlighting and jumps to
+its `create_clock` or `create_generated_clock` declaration name. Editing the
+document immediately updates resolution.
+
 Run the CLI regression suite with `cargo test --locked --test dump_tokens`.
 The LSP end-to-end suite compares the dump against tokens served over JSON-RPC
 and checks that deleting a clock definition removes its reference highlighting.
@@ -216,7 +221,8 @@ The test suite covers:
   source, plus dialect selection
 - a real `softbrush_ls` child process over framed JSON-RPC, including all
   advertised capabilities, diagnostics after open/change/close, semantic
-  tokens, document/workspace symbols, hover, completion, shutdown, and exit
+  tokens, document/workspace symbols, clock definitions, hover, completion,
+  shutdown, and exit
 
 Run only the process-level suite with `cargo test --test lsp_e2e`. Set
 `SOFTBRUSH_LS_BIN` to exercise a prebuilt executable such as the musl release.

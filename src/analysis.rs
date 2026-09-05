@@ -1,6 +1,6 @@
 //! Pure semantic analysis, diagnostics, symbols, and source-position mapping.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::catalog::{self, Dialect, TCL_KEYWORDS};
@@ -107,6 +107,25 @@ pub struct Analysis {
     pub semantic_spans: Vec<SemanticSpan>,
     /// Symbols declared in the document.
     pub symbols: Vec<Symbol>,
+    clock_references: Vec<ClockReference>,
+}
+
+#[derive(Clone, Debug)]
+struct ClockReference {
+    span: Range<usize>,
+    definition: Range<usize>,
+}
+
+impl Analysis {
+    /// Returns the document-local declaration name for a resolved clock reference.
+    /// Only earlier, static clock declarations participate in resolution.
+    #[must_use]
+    pub fn definition_at(&self, offset: usize) -> Option<Range<usize>> {
+        self.clock_references
+            .iter()
+            .find(|reference| reference.span.contains(&offset))
+            .map(|reference| reference.definition.clone())
+    }
 }
 
 /// Parses and analyzes source according to the selected Tcl-based dialect.
@@ -153,11 +172,11 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
         classify_procedure_parameters(source, command, &mut semantic_spans);
     }
     classify_arguments(&syntax.commands, dialect, &mut semantic_spans);
-    let clock_words = classify_clock_references(&syntax.commands, dialect, &mut semantic_spans);
+    let clocks = classify_clock_references(&syntax.commands, dialect, &mut semantic_spans);
     if dialect != Dialect::Tcl {
         classify_braces(source, &syntax, &mut semantic_spans);
     }
-    classify_strings(&syntax, &clock_words, &mut semantic_spans);
+    classify_strings(&syntax, &clocks.words, &mut semantic_spans);
     remove_overlapping_spans(&mut semantic_spans);
 
     diagnostics.sort_by_key(|diagnostic| (diagnostic.span.start, diagnostic.span.end));
@@ -167,6 +186,7 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
         diagnostics,
         semantic_spans,
         symbols,
+        clock_references: clocks.references,
     }
 }
 
@@ -569,16 +589,15 @@ fn classify_clock_references(
     commands: &[Command],
     dialect: Dialect,
     spans: &mut Vec<SemanticSpan>,
-) -> Vec<Range<usize>> {
+) -> ClockReferences {
     if dialect == Dialect::Tcl {
-        return Vec::new();
+        return ClockReferences::default();
     }
 
     let mut ordered_commands = commands.iter().collect::<Vec<_>>();
     // A substitution is evaluated before the containing clock declaration.
     ordered_commands.sort_by_key(|command| command.span.end);
-    let mut declared_clocks = HashSet::new();
-    let mut clock_words = Vec::new();
+    let mut clocks = ClockReferences::default();
 
     for command in ordered_commands {
         let Some(name) = command.name() else {
@@ -589,7 +608,7 @@ fn classify_clock_references(
                 .plain_text()
                 .is_some_and(|option| catalog::option_accepts_clock_name(name, option))
             {
-                classify_clock_reference(&pair[1], &declared_clocks, spans, &mut clock_words);
+                clocks.classify(&pair[1], spans);
             }
         }
         if catalog::positional_arguments_accept_clock_names(name) {
@@ -638,38 +657,46 @@ fn classify_clock_references(
                 };
                 position += 1;
                 if is_clock {
-                    classify_clock_reference(word, &declared_clocks, spans, &mut clock_words);
+                    clocks.classify(word, spans);
                 }
             }
         }
-        if let Some((clock_name, _)) = clock_definition(command, commands) {
-            declared_clocks.insert(clock_name);
+        if let Some((clock_name, definition)) = clock_definition(command, commands) {
+            clocks.declared.insert(clock_name, definition);
         }
     }
-    clock_words
+    clocks
 }
 
-fn classify_clock_reference(
-    word: &Word,
-    declared_clocks: &HashSet<String>,
-    spans: &mut Vec<SemanticSpan>,
-    clock_words: &mut Vec<Range<usize>>,
-) {
-    let Some((name, span)) = static_word_value(word) else {
-        return;
-    };
-    if name.starts_with('-') {
-        return;
-    }
-    clock_words.push(word.span.clone());
-    // A literal clock name is neither a numeric value nor a string token.
-    spans.retain(|semantic| semantic.span.end <= span.start || semantic.span.start >= span.end);
-    if declared_clocks.contains(&name) {
-        spans.push(SemanticSpan {
-            span,
-            kind: SemanticKind::Variable,
-            declaration: false,
-        });
+#[derive(Default)]
+struct ClockReferences {
+    declared: HashMap<String, Range<usize>>,
+    words: Vec<Range<usize>>,
+    references: Vec<ClockReference>,
+}
+
+impl ClockReferences {
+    fn classify(&mut self, word: &Word, spans: &mut Vec<SemanticSpan>) {
+        let Some((name, span)) = static_word_value(word) else {
+            return;
+        };
+        if name.starts_with('-') {
+            return;
+        }
+        self.words.push(word.span.clone());
+        // A literal clock name is neither a numeric value nor a string token.
+        spans.retain(|semantic| semantic.span.end <= span.start || semantic.span.start >= span.end);
+        if let Some(definition) = self.declared.get(&name) {
+            self.references.push(ClockReference {
+                span: span.clone(),
+                definition: definition.clone(),
+            });
+            spans.push(SemanticSpan {
+                span,
+                kind: SemanticKind::Variable,
+                declaration: false,
+            });
+        }
     }
 }
 

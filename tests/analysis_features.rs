@@ -363,3 +363,72 @@ fn separates_constraint_braces_from_contents_without_coloring_escaped_braces() {
         );
     }
 }
+
+#[test]
+fn resolves_clock_definitions_in_source_order_for_static_reference_forms() {
+    let source = concat!(
+        "set_input_delay -clock base 1 din\r\n",
+        "create_clock -name {base} -period 10\r\n",
+        "set_input_delay -clock base 1 din\r\n",
+        "create_generated_clock -name divided -source pin -master_clock {base} out\r\n",
+        "set_output_delay -clock \"divided\" 2 dout\r\n",
+        "get_clocks {base}\r\n",
+        "create_clock -period 4 [get_ports clk_😀]\r\n",
+        "set_input_delay -clock clk_😀 1 din\r\n",
+        "create_clock -name base -period 12\r\n",
+        "set_input_delay -clock {base} 1 din",
+    );
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let first_base = source.find("{base}").expect("base declaration") + 1;
+        let last_base = source.find("-name base").expect("second base declaration") + 6;
+        for (text, delta, definition, length) in [
+            ("-clock base 1 din\r\ncreate_generated", 7, first_base, 4),
+            ("-master_clock {base}", 15, first_base, 4),
+            ("get_clocks {base}", 12, first_base, 4),
+            (
+                "-clock \"divided\"",
+                8,
+                source.find("-name divided").expect("divided") + 6,
+                7,
+            ),
+            (
+                "-clock clk_😀",
+                7,
+                source.find("get_ports clk_😀").expect("inferred") + 10,
+                "clk_😀".len(),
+            ),
+            ("-clock {base}", 8, last_base, 4),
+        ] {
+            let offset = source.find(text).expect("reference") + delta;
+            assert_eq!(
+                analysis.definition_at(offset),
+                Some(definition..definition + length),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            analysis.definition_at(source.find("base").expect("forward reference")),
+            None
+        );
+    }
+}
+
+#[test]
+fn does_not_navigate_dynamic_unresolved_or_non_clock_arguments() {
+    let source = concat!(
+        "create_clock -name base -period 10\n",
+        "create_clock -name self -period 10 [get_clocks self]\n",
+        "set_input_delay -clock $base 1 din\n",
+        "set_input_delay -clock \"$base\" 1 din\n",
+        "set_input_delay -clock missing 1 din\n",
+        "set_input_delay -clock {missing} 1 din\n",
+        "get_clocks base*\n",
+        "get_ports base\n",
+        "get_clocks -filter base\n",
+    );
+    for dialect in [Dialect::Tcl, Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        assert!((0..source.len()).all(|offset| analysis.definition_at(offset).is_none()));
+    }
+}
