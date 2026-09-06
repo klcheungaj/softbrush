@@ -2,7 +2,16 @@
 linker = "musl-gcc"
 rustflags = ["-C", "target-feature=+crt-static"]
 
+[target.aarch64-unknown-linux-musl]
+linker = "musl-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+# Bundle the MSVC/UCRT runtime. Windows system DLLs remain dynamically linked.
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [env]
 # libmimalloc-sys compiles mimalloc's C source and therefore needs a compiler
 # that targets musl in addition to Cargo's final-linker configuration.
 CC_x86_64_unknown_linux_musl = { value = "musl-gcc", force = false }
+CC_aarch64_unknown_linux_musl = { value = "musl-gcc", force = false }
