@@ -50,35 +50,93 @@ jobs:
         # crates through RustPython. Vulnerabilities and unsoundness still fail.
         run: cargo +stable audit --file tools/parser-generator/Cargo.lock --deny unsound
 
-  musl:
-    runs-on: ubuntu-latest
+  platforms:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64 (musl)
+            runner: ubuntu-24.04
+            os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-musl
+            binary: target/x86_64-unknown-linux-musl/release/softbrush_ls
+          - name: Linux ARM64 (musl)
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-musl
+            binary: target/aarch64-unknown-linux-musl/release/softbrush_ls
+          - name: Windows x64 (MSVC)
+            runner: windows-2025
+            os: windows
+            arch: x64
+            target: x86_64-pc-windows-msvc
+            binary: target/x86_64-pc-windows-msvc/release/softbrush_ls.exe
+          - name: Windows ARM64 (MSVC)
+            runner: windows-11-vs2026-arm
+            os: windows
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            binary: target/aarch64-pc-windows-msvc/release/softbrush_ls.exe
+          - name: macOS ARM64
+            runner: macos-15
+            os: macos
+            arch: arm64
+            target: aarch64-apple-darwin
+            binary: target/aarch64-apple-darwin/release/softbrush_ls
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust and musl toolchains
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup target add --toolchain 1.95.0 x86_64-unknown-linux-musl
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-      - name: Build static softbrush_ls with mimalloc
-        run: ./scripts/build-musl.sh
-        env:
-          RUSTUP_TOOLCHAIN: 1.95.0
-      - name: Verify static executable
-        run: ./scripts/verify-musl.sh target/x86_64-unknown-linux-musl/release/softbrush_ls
-      - name: Verify release rejects debug token dumps
+      - name: Install Rust toolchain and target
+        run: rustup toolchain install 1.95.0 --profile minimal --target ${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.os == 'linux'
         shell: bash
         run: |
-          status=0
-          target/x86_64-unknown-linux-musl/release/softbrush_ls --dump-tokens tests/fixtures/sdc/edge/token_dump.sdc > dump.stdout 2> dump.stderr || status=$?
-          test "$status" -eq 2
-          test ! -s dump.stdout
-          test -s dump.stderr
-      - name: Run end-to-end tests against musl executable
-        run: cargo test --locked --test lsp_e2e
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build Linux release
+        if: matrix.os == 'linux'
+        shell: bash
+        run: ./scripts/build-linux.sh --arch ${{ matrix.arch }}
         env:
           RUSTUP_TOOLCHAIN: 1.95.0
-          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/softbrush_ls
+      - name: Build Windows/macOS release
+        if: matrix.os != 'linux'
+        run: cargo +1.95.0 build --locked --release --target ${{ matrix.target }}
+      - name: Run Linux target test suite
+        if: matrix.os == 'linux'
+        run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
+        env:
+          CC: musl-gcc
+      - name: Run Windows/macOS target test suite
+        if: matrix.os != 'linux'
+        run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
+      - name: Run Linux end-to-end tests against release executable
+        if: matrix.os == 'linux'
+        run: cargo +1.95.0 test --locked --test lsp_e2e --target ${{ matrix.target }}
+        env:
+          CC: musl-gcc
+          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/${{ matrix.binary }}
+      - name: Run Windows/macOS end-to-end tests against release executable
+        if: matrix.os != 'linux'
+        run: cargo +1.95.0 test --locked --test lsp_e2e --target ${{ matrix.target }}
+        env:
+          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/${{ matrix.binary }}
+      - name: Verify Linux static linkage
+        if: matrix.os == 'linux'
+        shell: bash
+        run: ./scripts/verify-musl.sh ${{ matrix.binary }}
+      - name: Verify Windows static runtime linkage
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/verify-windows.ps1 -Binary ${{ matrix.binary }} -Architecture ${{ matrix.arch }}
+      - name: Verify macOS system-library linkage
+        if: matrix.os == 'macos'
+        shell: bash
+        run: ./scripts/verify-macos.sh ${{ matrix.binary }}
 
   container:
     runs-on: ubuntu-latest

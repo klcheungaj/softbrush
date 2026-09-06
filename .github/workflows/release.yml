@@ -8,32 +8,124 @@ permissions:
   contents: write
 
 jobs:
-  linux-musl:
-    runs-on: ubuntu-latest
+  artifacts:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-musl
+            binary: target/x86_64-unknown-linux-musl/release/softbrush_ls
+            archive: softbrush_ls-x86_64-unknown-linux-musl.tar.gz
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-musl
+            binary: target/aarch64-unknown-linux-musl/release/softbrush_ls
+            archive: softbrush_ls-aarch64-unknown-linux-musl.tar.gz
+          - name: Windows x64
+            runner: windows-2025
+            os: windows
+            arch: x64
+            target: x86_64-pc-windows-msvc
+            binary: target/x86_64-pc-windows-msvc/release/softbrush_ls.exe
+            archive: softbrush_ls-x86_64-pc-windows-msvc.zip
+          - name: Windows ARM64
+            runner: windows-11-vs2026-arm
+            os: windows
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            binary: target/aarch64-pc-windows-msvc/release/softbrush_ls.exe
+            archive: softbrush_ls-aarch64-pc-windows-msvc.zip
+          - name: macOS ARM64
+            runner: macos-15
+            os: macos
+            arch: arm64
+            target: aarch64-apple-darwin
+            binary: target/aarch64-apple-darwin/release/softbrush_ls
+            archive: softbrush_ls-aarch64-apple-darwin.tar.gz
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        run: rustup toolchain install 1.95.0 --profile minimal
-      - name: Build official musl executable
-        run: docker build --target musl-artifact --output type=local,dest=release-root .
-      - name: Verify official executable
-        run: ./scripts/verify-musl.sh release-root/softbrush_ls
-      - name: Run end-to-end tests against official executable
-        run: cargo +1.95.0 test --locked --test lsp_e2e --target x86_64-unknown-linux-gnu
+      - name: Install Rust toolchain and target
+        run: rustup toolchain install 1.95.0 --profile minimal --target ${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build Linux release
+        if: matrix.os == 'linux'
+        shell: bash
+        run: ./scripts/build-linux.sh --arch ${{ matrix.arch }}
         env:
-          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/release-root/softbrush_ls
-      - name: Package executable
+          RUSTUP_TOOLCHAIN: 1.95.0
+      - name: Build Windows/macOS release
+        if: matrix.os != 'linux'
+        run: cargo +1.95.0 build --locked --release --target ${{ matrix.target }}
+      - name: Run Linux target test suite
+        if: matrix.os == 'linux'
+        run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
+        env:
+          CC: musl-gcc
+      - name: Run Windows/macOS target test suite
+        if: matrix.os != 'linux'
+        run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
+      - name: Run Linux end-to-end tests against release executable
+        if: matrix.os == 'linux'
+        run: cargo +1.95.0 test --locked --test lsp_e2e --target ${{ matrix.target }}
+        env:
+          CC: musl-gcc
+          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/${{ matrix.binary }}
+      - name: Run Windows/macOS end-to-end tests against release executable
+        if: matrix.os != 'linux'
+        run: cargo +1.95.0 test --locked --test lsp_e2e --target ${{ matrix.target }}
+        env:
+          SOFTBRUSH_LS_BIN: ${{ github.workspace }}/${{ matrix.binary }}
+      - name: Verify Linux static linkage
+        if: matrix.os == 'linux'
+        shell: bash
+        run: ./scripts/verify-musl.sh ${{ matrix.binary }}
+      - name: Verify Windows static runtime linkage
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/verify-windows.ps1 -Binary ${{ matrix.binary }} -Architecture ${{ matrix.arch }}
+      - name: Verify macOS system-library linkage
+        if: matrix.os == 'macos'
+        shell: bash
+        run: ./scripts/verify-macos.sh ${{ matrix.binary }}
+      - name: Package Unix executable
+        if: matrix.os != 'windows'
+        shell: bash
         run: |
-          archive=softbrush_ls-x86_64-unknown-linux-musl.tar.gz
           mkdir -p dist
-          install -m 755 release-root/softbrush_ls dist/softbrush_ls
+          install -m 755 "${{ matrix.binary }}" dist/softbrush_ls
           install -m 644 LICENSE README.md dist/
-          tar -C dist -czf "$archive" softbrush_ls LICENSE README.md
-          sha256sum "$archive" > "$archive.sha256"
-      - name: Upload official release assets
+          tar -C dist -czf "${{ matrix.archive }}" softbrush_ls LICENSE README.md
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+          fi
+      - name: Package Windows executable
+        if: matrix.os == 'windows'
+        shell: pwsh
         run: |
-          archive=softbrush_ls-x86_64-unknown-linux-musl.tar.gz
-          gh release upload "$RELEASE_TAG" "$archive" "$archive.sha256" --clobber
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -LiteralPath "${{ matrix.binary }}" -Destination dist/softbrush_ls.exe
+          Copy-Item -LiteralPath LICENSE, README.md -Destination dist
+          Compress-Archive -Path dist/softbrush_ls.exe, dist/LICENSE, dist/README.md -DestinationPath "${{ matrix.archive }}"
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath "${{ matrix.archive }}").Hash.ToLowerInvariant()
+          "$hash  ${{ matrix.archive }}" | Set-Content -Encoding ascii "${{ matrix.archive }}.sha256"
+      - name: Upload release assets
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" "${{ matrix.archive }}" "${{ matrix.archive }}.sha256" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
