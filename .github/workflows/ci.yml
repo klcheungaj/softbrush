@@ -108,12 +108,12 @@ jobs:
       - name: Build Windows/macOS release
         if: matrix.os != 'linux'
         run: cargo +1.95.0 build --locked --release --target ${{ matrix.target }}
-      - name: Run Linux target test suite
+      - name: Run Linux tests
         if: matrix.os == 'linux'
         run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
         env:
           CC: musl-gcc
-      - name: Run Windows/macOS target test suite
+      - name: Run Windows/macOS tests
         if: matrix.os != 'linux'
         run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
       - name: Run Linux end-to-end tests against release executable
