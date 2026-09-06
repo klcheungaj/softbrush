@@ -156,6 +156,7 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
     for command in &syntax.commands {
         lint_command(command, dialect, &mut diagnostics);
     }
+    lint_constraint_placeholders(source, &syntax, dialect, &mut diagnostics);
 
     let mut semantic_spans = Vec::new();
     semantic_spans.extend(syntax.comments.iter().cloned().map(|span| SemanticSpan {
@@ -543,6 +544,69 @@ fn lint_continuations(source: &str, diagnostics: &mut Vec<Diagnostic>) {
             });
         }
         line_start += line.len();
+    }
+}
+
+fn lint_constraint_placeholders(
+    source: &str,
+    syntax: &SyntaxModel,
+    dialect: Dialect,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if dialect == Dialect::Tcl {
+        return;
+    }
+    for command in syntax
+        .commands
+        .iter()
+        .filter(|command| command.nesting == 0)
+    {
+        let Some(name) = command.name() else {
+            continue;
+        };
+        if catalog::is_known_command(Dialect::Tcl, name)
+            || !catalog::is_known_command(dialect, name)
+        {
+            continue;
+        }
+        let command_text = &source[command.span.clone()];
+        for (open, _) in command_text.match_indices('<') {
+            let content_start = open + 1;
+            let Some(close) = command_text[content_start..].find('>') else {
+                continue;
+            };
+            let close = content_start + close;
+            let content = &command_text[content_start..close];
+            if content.is_empty()
+                || content.trim() != content
+                || !content
+                    .chars()
+                    .any(|character| character.is_ascii_alphabetic())
+                || !content.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '_' | ' ')
+                })
+            {
+                continue;
+            }
+            let start = command.span.start + open;
+            let end = command.span.start + close + 1;
+            if syntax
+                .strings
+                .iter()
+                .any(|string| string.start <= start && end <= string.end)
+            {
+                continue;
+            }
+            diagnostics.push(Diagnostic {
+                span: start..end,
+                severity: Severity::Error,
+                code: "constraint-placeholder",
+                message: format!(
+                    "`{}` is documentation placeholder syntax; replace it with an actual value",
+                    &source[start..end]
+                ),
+            });
+        }
     }
 }
 

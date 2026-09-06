@@ -347,6 +347,36 @@ fn assert_diagnostic_protocol(client: &mut LspClient) {
     );
 }
 
+fn assert_invalid_command_placeholders(client: &mut LspClient) {
+    let source = "set_input_delay -clock <CLOCK> [-reference_pin <clkout_pad>] -max <MAX CALCULATION> [get_ports {clk_33m3333}]";
+    for (uri, language) in [
+        ("file:///tmp/placeholders.sdc", "sdc"),
+        ("file:///tmp/placeholders.xdc", "xdc"),
+    ] {
+        let published = open_document(client, uri, language, source);
+        let placeholders = diagnostics(&published)
+            .iter()
+            .filter(|diagnostic| diagnostic["code"] == "constraint-placeholder")
+            .collect::<Vec<_>>();
+        assert_eq!(placeholders.len(), 3, "{language} placeholder diagnostics");
+        assert!(
+            placeholders
+                .iter()
+                .all(|diagnostic| diagnostic["severity"] == 1)
+        );
+        close_document(client, uri);
+    }
+
+    let uri = "file:///tmp/invalid.tcl";
+    let published = open_document(client, uri, "tcl", "puts {unterminated");
+    assert!(
+        diagnostics(&published)
+            .iter()
+            .any(|diagnostic| diagnostic["code"] == "tcl-syntax" && diagnostic["severity"] == 1)
+    );
+    close_document(client, uri);
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct SemanticToken {
     line: u32,
@@ -793,6 +823,7 @@ fn validates_every_advertised_lsp_feature_over_stdio() {
     #[cfg(debug_assertions)]
     assert_dump_matches_lsp(&mut client);
     assert_diagnostic_protocol(&mut client);
+    assert_invalid_command_placeholders(&mut client);
     assert_symbol_providers(&mut client);
     assert_hover_and_completion(&mut client);
     assert_clock_navigation(&mut client);

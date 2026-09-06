@@ -415,6 +415,49 @@ fn resolves_clock_definitions_in_source_order_for_static_reference_forms() {
 }
 
 #[test]
+fn rejects_documentation_placeholders_in_constraint_commands() {
+    let source = "set_input_delay -clock <CLOCK> [-reference_pin <clkout_pad>] -max <MAX CALCULATION> [get_ports {clk_33m3333}]";
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let placeholders = analysis
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "constraint-placeholder")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            placeholders
+                .iter()
+                .map(|diagnostic| &source[diagnostic.span.clone()])
+                .collect::<Vec<_>>(),
+            ["<CLOCK>", "<clkout_pad>", "<MAX CALCULATION>"]
+        );
+        assert!(
+            placeholders
+                .iter()
+                .all(|diagnostic| diagnostic.severity == Severity::Error)
+        );
+    }
+
+    assert!(
+        analyze(source, Dialect::Tcl)
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "constraint-placeholder")
+    );
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        assert!(
+            analyze(
+                "set_input_delay -clock {<literal_clock>} 1 [get_ports din]",
+                dialect,
+            )
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "constraint-placeholder")
+        );
+    }
+}
+
+#[test]
 fn does_not_navigate_dynamic_unresolved_or_non_clock_arguments() {
     let source = concat!(
         "create_clock -name base -period 10\n",
