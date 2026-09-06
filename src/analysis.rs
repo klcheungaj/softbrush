@@ -111,6 +111,7 @@ pub struct Analysis {
     pub semantic_spans: Vec<SemanticSpan>,
     /// Symbols declared in the document.
     pub symbols: Vec<Symbol>,
+    dialect: Dialect,
     clock_references: Vec<ClockReference>,
 }
 
@@ -118,6 +119,15 @@ pub struct Analysis {
 struct ClockReference {
     span: Range<usize>,
     definition: Range<usize>,
+}
+
+/// Document-local ranges participating in a static clock rename.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClockRename {
+    /// Range selected by the rename request.
+    pub selection_span: Range<usize>,
+    /// Declaration and resolved reference ranges to edit.
+    pub edit_spans: Vec<Range<usize>>,
 }
 
 impl Analysis {
@@ -129,6 +139,43 @@ impl Analysis {
             .iter()
             .find(|reference| reference.span.contains(&offset))
             .map(|reference| reference.definition.clone())
+    }
+
+    /// Returns all document-local ranges for a static clock rename at `offset`.
+    ///
+    /// A rename is available on clock declarations and references that resolve
+    /// to them. Forward, dynamic, and unresolved references are excluded.
+    #[must_use]
+    pub fn clock_rename_at(&self, offset: usize) -> Option<ClockRename> {
+        if self.dialect == Dialect::Tcl {
+            return None;
+        }
+        let (selection_span, definition) = self
+            .clock_references
+            .iter()
+            .find(|reference| reference.span.contains(&offset))
+            .map(|reference| (reference.span.clone(), reference.definition.clone()))
+            .or_else(|| {
+                self.symbols
+                    .iter()
+                    .find(|symbol| {
+                        symbol.kind == SymbolKind::Clock && symbol.selection_span.contains(&offset)
+                    })
+                    .map(|symbol| (symbol.selection_span.clone(), symbol.selection_span.clone()))
+            })?;
+        let mut edit_spans = vec![definition.clone()];
+        edit_spans.extend(
+            self.clock_references
+                .iter()
+                .filter(|reference| reference.definition == definition)
+                .map(|reference| reference.span.clone()),
+        );
+        edit_spans.sort_by_key(|span| (span.start, span.end));
+        edit_spans.dedup();
+        Some(ClockRename {
+            selection_span,
+            edit_spans,
+        })
     }
 }
 
@@ -191,6 +238,7 @@ pub fn analyze(source: &str, dialect: Dialect) -> Analysis {
         diagnostics,
         semantic_spans,
         symbols,
+        dialect,
         clock_references: clocks.references,
     }
 }

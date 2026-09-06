@@ -4,11 +4,11 @@
 #[cfg(debug_assertions)]
 pub mod debug_dump;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Range as ByteRange;
 
 use dashmap::DashMap;
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{Error, Result};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
     CompletionTextEdit, DiagnosticSeverity, DidChangeTextDocumentParams,
@@ -16,11 +16,13 @@ use tower_lsp::lsp_types::{
     DocumentSymbolResponse, Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
-    Position, PositionEncodingKind, Range, SemanticToken, SemanticTokenModifier, SemanticTokenType,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, ServerInfo, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Url, WorkspaceSymbolParams,
+    Position, PositionEncodingKind, PrepareRenameResponse, Range, RenameOptions, RenameParams,
+    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkDoneProgressOptions, WorkspaceEdit,
+    WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -116,6 +118,10 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec!["-".to_owned()]),
@@ -295,6 +301,53 @@ impl LanguageServer for Backend {
         }))
     }
 
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let Some(document) = self.documents.get(uri) else {
+            return Ok(None);
+        };
+        let offset = document
+            .index
+            .offset(params.position.line, params.position.character);
+        Ok(document.analysis.clock_rename_at(offset).map(|rename| {
+            PrepareRenameResponse::Range(to_range(&document.index, rename.selection_span))
+        }))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let Some(document) = self.documents.get(uri) else {
+            return Ok(None);
+        };
+        let position = params.text_document_position.position;
+        let offset = document.index.offset(position.line, position.character);
+        let Some(rename) = document.analysis.clock_rename_at(offset) else {
+            return Ok(None);
+        };
+        if !is_valid_clock_name(&params.new_name) {
+            return Err(Error::invalid_params(
+                "the new clock name must be a non-empty static Tcl word without whitespace, substitutions, or wildcards",
+            ));
+        }
+        let edits = rename
+            .edit_spans
+            .into_iter()
+            .map(|span| TextEdit {
+                range: to_range(&document.index, span),
+                new_text: params.new_name.clone(),
+            })
+            .collect();
+        let mut changes = HashMap::new();
+        changes.insert(uri.clone(), edits);
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..WorkspaceEdit::default()
+        }))
+    }
+
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         if let Some(document) = self.documents.get(uri) {
@@ -352,6 +405,18 @@ fn dialect_name(dialect: Dialect) -> &'static str {
         Dialect::Sdc => "SDC/Tcl",
         Dialect::Xdc => "XDC/Tcl",
     }
+}
+
+fn is_valid_clock_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('-')
+        && !name.chars().any(|character| {
+            character.is_whitespace()
+                || matches!(
+                    character,
+                    '$' | '[' | ']' | '{' | '}' | '"' | '\\' | ';' | '*' | '?' | '<' | '>'
+                )
+        })
 }
 
 fn to_lsp_diagnostics(document: &Document) -> Vec<tower_lsp::lsp_types::Diagnostic> {

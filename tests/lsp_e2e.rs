@@ -268,6 +268,10 @@ fn assert_initialize_capabilities(initialized: &Value) {
     assert_eq!(capabilities.get("hoverProvider"), Some(&json!(true)));
     assert_eq!(capabilities.get("definitionProvider"), Some(&json!(true)));
     assert_eq!(
+        capabilities.get("renameProvider"),
+        Some(&json!({"prepareProvider": true}))
+    );
+    assert_eq!(
         capabilities.get("completionProvider"),
         Some(&json!({"triggerCharacters": ["-"]}))
     );
@@ -869,6 +873,7 @@ fn assert_clock_navigation(client: &mut LspClient) {
                 "{language} reference on line {line}"
             );
         }
+        assert_clock_rename(client, uri);
         let response = client.request(
             "textDocument/definition",
             &json!({
@@ -900,6 +905,70 @@ fn assert_clock_navigation(client: &mut LspClient) {
         );
         assert_eq!(response.get("result"), Some(&Value::Null));
     }
+}
+
+fn assert_clock_rename(client: &mut LspClient, uri: &str) {
+    let prepared = client.request(
+        "textDocument/prepareRename",
+        &json!({
+            "textDocument": {"uri": uri}, "position": {"line": 3, "character": 25}
+        }),
+    );
+    assert_eq!(
+        prepared.get("result"),
+        Some(&json!({
+            "start": {"line": 3, "character": 25},
+            "end": {"line": 3, "character": 32}
+        }))
+    );
+    let unresolved = client.request(
+        "textDocument/prepareRename",
+        &json!({
+            "textDocument": {"uri": uri}, "position": {"line": 5, "character": 23}
+        }),
+    );
+    assert_eq!(unresolved.get("result"), Some(&Value::Null));
+    let renamed = client.request(
+        "textDocument/rename",
+        &json!({
+            "textDocument": {"uri": uri},
+            "position": {"line": 2, "character": 23},
+            "newName": "renamed_clk"
+        }),
+    );
+    assert_eq!(
+        renamed.pointer(&format!(
+            "/result/changes/{}",
+            uri.replace('~', "~0").replace('/', "~1")
+        )),
+        Some(&json!([
+            {
+                "range": {"start": {"line": 0, "character": 20}, "end": {"line": 0, "character": 26}},
+                "newText": "renamed_clk"
+            },
+            {
+                "range": {"start": {"line": 1, "character": 63}, "end": {"line": 1, "character": 69}},
+                "newText": "renamed_clk"
+            },
+            {
+                "range": {"start": {"line": 2, "character": 23}, "end": {"line": 2, "character": 29}},
+                "newText": "renamed_clk"
+            },
+            {
+                "range": {"start": {"line": 4, "character": 24}, "end": {"line": 4, "character": 30}},
+                "newText": "renamed_clk"
+            }
+        ]))
+    );
+    let invalid_name = client.request(
+        "textDocument/rename",
+        &json!({
+            "textDocument": {"uri": uri},
+            "position": {"line": 2, "character": 23},
+            "newName": "invalid name"
+        }),
+    );
+    assert_eq!(invalid_name.pointer("/error/code"), Some(&json!(-32602)));
 }
 
 fn assert_option_completion(client: &mut LspClient) {

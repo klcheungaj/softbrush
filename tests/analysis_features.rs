@@ -415,6 +415,56 @@ fn resolves_clock_definitions_in_source_order_for_static_reference_forms() {
 }
 
 #[test]
+fn returns_static_clock_occurrences_for_rename() {
+    let source = concat!(
+        "set_input_delay -clock base 1 din\n",
+        "create_clock -name {base} -period 10\n",
+        "set_input_delay -clock base 1 din\n",
+        "create_generated_clock -name divided -source pin -master_clock base out\n",
+        "set_output_delay -clock \"divided\" 2 dout\n",
+        "create_clock -name base -period 12\n",
+        "set_input_delay -clock base 1 din\n",
+    );
+    for dialect in [Dialect::Sdc, Dialect::Xdc] {
+        let analysis = analyze(source, dialect);
+        let first_definition = source.find("{base}").expect("first base declaration") + 1;
+        let first_reference = source
+            .find("-clock base 1 din\ncreate_generated")
+            .expect("resolved base reference")
+            + 7;
+        let rename = analysis
+            .clock_rename_at(first_reference)
+            .expect("resolved clock can be renamed");
+        assert_eq!(rename.selection_span, first_reference..first_reference + 4);
+        assert_eq!(
+            rename
+                .edit_spans
+                .iter()
+                .map(|span| &source[span.clone()])
+                .collect::<Vec<_>>(),
+            ["base", "base", "base"]
+        );
+        assert_eq!(rename.edit_spans[0], first_definition..first_definition + 4);
+
+        let forward_reference = source.find("-clock base").expect("forward reference") + 7;
+        assert_eq!(analysis.clock_rename_at(forward_reference), None);
+
+        let second_definition = source
+            .find("-name base -period 12")
+            .expect("second declaration")
+            + 6;
+        let second_rename = analysis
+            .clock_rename_at(second_definition)
+            .expect("second binding can be renamed");
+        assert_eq!(second_rename.edit_spans.len(), 2);
+        assert_eq!(second_rename.edit_spans[0].start, second_definition);
+    }
+    let tcl = analyze(source, Dialect::Tcl);
+    let definition = source.find("{base}").expect("base declaration") + 1;
+    assert_eq!(tcl.clock_rename_at(definition), None);
+}
+
+#[test]
 fn rejects_documentation_placeholders_in_constraint_commands() {
     let source = "set_input_delay -clock <CLOCK> [-reference_pin <clkout_pad>] -max <MAX CALCULATION> [get_ports {clk_33m3333}]";
     for dialect in [Dialect::Sdc, Dialect::Xdc] {
