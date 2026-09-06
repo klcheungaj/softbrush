@@ -52,6 +52,14 @@ On Apple Silicon:
 cargo build --locked --release --target aarch64-apple-darwin
 ```
 
+## Test
+
+Run the complete test suite on the current platform:
+
+```sh
+cargo test --locked --all-targets
+```
+
 ## Usage
 
 Configure your editor's language client to run `softbrush_ls --stdio` for

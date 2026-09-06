@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -184,16 +185,37 @@ const SUPPORTED_NEGATIVE_DIAGNOSTICS: &[ExpectedDiagnostic] = &[
     },
 ];
 
+fn relative_path_matches(path: &Path, expected: &str) -> bool {
+    path.components()
+        .map(std::path::Component::as_os_str)
+        .eq(expected.split('/').map(OsStr::new))
+}
+
+#[test]
+fn matches_expected_diagnostic_paths_by_component() {
+    let path = Path::new("sdc")
+        .join("invalid")
+        .join("unclosed_collection_bracket.sdc");
+
+    assert!(relative_path_matches(
+        &path,
+        "sdc/invalid/unclosed_collection_bracket.sdc"
+    ));
+    assert!(!relative_path_matches(
+        &path,
+        "xdc/negative/unclosed_collection_bracket.sdc"
+    ));
+}
+
 fn assert_negative_corpus(directory: &Path, extension: &str, dialect: Dialect) {
     for path in fixture_files(directory, Some(extension)) {
         let relative = path
             .strip_prefix(FIXTURES)
-            .expect("fixture path is below fixture root")
-            .to_string_lossy();
+            .expect("fixture path is below fixture root");
         let analysis = analyze_fixture(&path, dialect);
         let expected = SUPPORTED_NEGATIVE_DIAGNOSTICS
             .iter()
-            .find(|expected| expected.relative_path == relative);
+            .find(|expected| relative_path_matches(relative, expected.relative_path));
 
         if let Some(expected) = expected {
             assert!(
