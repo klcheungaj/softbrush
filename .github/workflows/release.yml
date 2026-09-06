@@ -18,38 +18,45 @@ jobs:
             runner: ubuntu-24.04
             os: linux
             arch: x86_64
+            release_arch: x64
+            archive_extension: tar.gz
             target: x86_64-unknown-linux-musl
             binary: target/x86_64-unknown-linux-musl/release/softbrush_ls
-            archive: softbrush_ls-x86_64-unknown-linux-musl.tar.gz
           - name: Linux ARM64
             runner: ubuntu-24.04-arm
             os: linux
             arch: aarch64
+            release_arch: arm64
+            archive_extension: tar.gz
             target: aarch64-unknown-linux-musl
             binary: target/aarch64-unknown-linux-musl/release/softbrush_ls
-            archive: softbrush_ls-aarch64-unknown-linux-musl.tar.gz
           - name: Windows x64
             runner: windows-2025
             os: windows
             arch: x64
+            release_arch: x64
+            archive_extension: zip
             target: x86_64-pc-windows-msvc
             binary: target/x86_64-pc-windows-msvc/release/softbrush_ls.exe
-            archive: softbrush_ls-x86_64-pc-windows-msvc.zip
           - name: Windows ARM64
             runner: windows-11-vs2026-arm
             os: windows
             arch: arm64
+            release_arch: arm64
+            archive_extension: zip
             target: aarch64-pc-windows-msvc
             binary: target/aarch64-pc-windows-msvc/release/softbrush_ls.exe
-            archive: softbrush_ls-aarch64-pc-windows-msvc.zip
           - name: macOS ARM64
             runner: macos-15
             os: macos
             arch: arm64
+            release_arch: arm64
+            archive_extension: tar.gz
             target: aarch64-apple-darwin
             binary: target/aarch64-apple-darwin/release/softbrush_ls
-            archive: softbrush_ls-aarch64-apple-darwin.tar.gz
     runs-on: ${{ matrix.runner }}
+    env:
+      ARCHIVE: softbrush_ls-${{ github.event.release.tag_name }}-${{ matrix.os }}-${{ matrix.release_arch }}.${{ matrix.archive_extension }}
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust toolchain and target
@@ -110,11 +117,11 @@ jobs:
           mkdir -p dist
           install -m 755 "${{ matrix.binary }}" dist/softbrush_ls
           install -m 644 LICENSE README.md dist/
-          tar -C dist -czf "${{ matrix.archive }}" softbrush_ls LICENSE README.md
+          tar -C dist -czf "$ARCHIVE" softbrush_ls LICENSE README.md
           if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+            sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
           else
-            shasum -a 256 "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256"
+            shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
           fi
       - name: Package Windows executable
         if: matrix.os == 'windows'
@@ -123,12 +130,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item -LiteralPath "${{ matrix.binary }}" -Destination dist/softbrush_ls.exe
           Copy-Item -LiteralPath LICENSE, README.md -Destination dist
-          Compress-Archive -Path dist/softbrush_ls.exe, dist/LICENSE, dist/README.md -DestinationPath "${{ matrix.archive }}"
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath "${{ matrix.archive }}").Hash.ToLowerInvariant()
-          "$hash  ${{ matrix.archive }}" | Set-Content -Encoding ascii "${{ matrix.archive }}.sha256"
+          Compress-Archive -Path dist/softbrush_ls.exe, dist/LICENSE, dist/README.md -DestinationPath "$env:ARCHIVE"
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:ARCHIVE).Hash.ToLowerInvariant()
+          "$hash  ${env:ARCHIVE}" | Set-Content -Encoding ascii "${env:ARCHIVE}.sha256"
       - name: Upload release assets
         shell: bash
-        run: gh release upload "$RELEASE_TAG" "${{ matrix.archive }}" "${{ matrix.archive }}.sha256" --clobber
+        run: gh release upload "$RELEASE_TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
