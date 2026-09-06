@@ -7,10 +7,10 @@ SDC/XDC constraint dialects.
 
 - Syntax diagnostics and Tcl command linting
 - Semantic highlighting with Unicode-correct positions
-- SDC/XDC validation that allows vendor extensions
+- SDC/XDC validation that allows vendor extensions and rejects unquoted placeholders
 - Document and workspace symbols
 - Context-aware completion and hover help
-- Go-to-definition for document-local clock references
+- Go-to-definition and rename for document-local clock references
 
 ## Supported platforms
 
@@ -64,7 +64,9 @@ cargo test --locked --all-targets
 
 Configure your editor's language client to run `softbrush_ls --stdio` for
 `.tcl`, `.sdc`, and `.xdc` files. Starting the executable without arguments
-also serves LSP over stdio.
+also serves LSP over stdio. Run `softbrush_ls --help` to list all supported
+arguments. Debug builds additionally support `--dump-tokens [--] FILE...` for
+offline token and diagnostic reports.
 
 ## License
 
