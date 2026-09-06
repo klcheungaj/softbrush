@@ -31,21 +31,88 @@ syntax or high-confidence invalid values.
 
 ## Build and validation
 
-Use the GNU target for normal development and tests. Official artifacts use
-the static musl target with mimalloc.
+Use the native GNU target for normal Linux development and tests. Official
+Linux artifacts use static musl on x64 and ARM64. Windows artifacts use MSVC
+with the static CRT, and macOS artifacts target Apple Silicon; mimalloc is
+linked into every executable.
+
+### Development builds
+
+Use GNU builds for normal Linux debugging:
+
+```sh
+./scripts/build-linux.sh --gnu
+cargo test --locked --all-targets --target x86_64-unknown-linux-gnu
+```
+
+The Debian-based `gnu-dev` Docker target includes Rustfmt and Clippy and runs
+the test suite by default:
+
+```sh
+docker build --target gnu-dev --tag softbrush_ls:dev .
+docker run --rm softbrush_ls:dev
+```
+
+For an interactive container, bind the repository at `/workspace` and use a
+named volume for `/workspace/target`. The image defaults to UID/GID 1000; use
+the `UID` and `GID` build arguments when needed.
+
+### Debug token dumps
+
+Debug builds provide an offline report using the same lexer, analyzer, and
+semantic encoder as the LSP server:
+
+```sh
+cargo run --locked --target x86_64-unknown-linux-gnu -- \
+  --dump-tokens tests/fixtures/sdc/edge/token_dump.sdc
+```
+
+The command accepts `.tcl`, `.sdc`, and `.xdc` files in argument order. Use
+`--dump-tokens -- FILE...` for names beginning with a dash. Reports use the
+`softbrush.tokenDump/v1` tab-separated format and contain `lexer`, `word`,
+`semantic`, and `diagnostic` rows with UTF-8 byte ranges and UTF-16 positions.
+Source diagnostics do not fail the command; usage, file, encoding, and output
+errors exit with status 2.
+
+Token dumps exist only with `debug_assertions`. Release builds must reject all
+non-transport arguments. Keep `tests/dump_tokens.rs` aligned with the LSP
+semantic encoder and preserve its complete byte-coverage and Unicode checks.
+
+### Parser generation
+
+Generated lexer and parser sources are committed under `src/generated`.
+Never edit them manually. Change `grammar/Tcl.g4`, then run:
+
+```sh
+./scripts/generate-parser.sh
+./scripts/generate-parser.sh --check
+```
+
+The project-owned generator under `tools/parser-generator` must stay API
+compatible with `antlr-rust-runtime`. Normal builds must not require Java or
+the generator.
+
+### Validation
 
 ```sh
 cargo fmt --all --check
 cargo test --locked --all-targets --target x86_64-unknown-linux-gnu
 cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --target x86_64-unknown-linux-gnu
+cargo test --locked --manifest-path tools/parser-generator/Cargo.toml
+cargo clippy --locked --manifest-path tools/parser-generator/Cargo.toml --all-targets -- -D warnings
 ./scripts/generate-parser.sh --check
-./scripts/build-musl.sh
+./scripts/build-linux.sh
 ./scripts/verify-musl.sh target/x86_64-unknown-linux-musl/release/softbrush_ls
 ```
 
 When behavior changes, add focused unit/integration coverage and update the
 process-level LSP test when the externally observable protocol changes.
+`SOFTBRUSH_LS_BIN` selects a prebuilt executable for `tests/lsp_e2e.rs`.
+
+CI tests all five release targets on native GitHub runners and verifies their
+linkage policy. Release automation publishes a platform archive and SHA-256
+checksum for each target.
 
 ## Change discipline
 
