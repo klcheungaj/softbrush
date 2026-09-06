@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 antlr-rust-runtime = "=0.34.0"
 dashmap = "5.5"
-mimalloc = { version = "0.1.50", default-features = false }
+mimalloc = { version = "0.1.50", default-features = false, features = ["override"] }
 strsim = "0.11"
 tokio = { version = "1.47", features = ["io-std", "macros", "rt-multi-thread"] }
 tower-lsp = "0.20"

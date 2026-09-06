@@ -22,6 +22,8 @@ jobs:
         run: ./scripts/generate-parser.sh --check
         env:
           RUSTUP_TOOLCHAIN: 1.95.0
+      - name: Test musl allocator verification
+        run: ./tests/verify_musl_allocator.sh
       - name: Run tests
         run: |
           cargo +1.95.0 test --locked --all-targets --target x86_64-unknown-linux-gnu
@@ -125,7 +127,7 @@ jobs:
         run: cargo +1.95.0 test --locked --test lsp_e2e --target ${{ matrix.target }}
         env:
           SOFTBRUSH_LS_BIN: ${{ github.workspace }}/${{ matrix.binary }}
-      - name: Verify Linux static linkage
+      - name: Verify Linux static linkage and allocator override
         if: matrix.os == 'linux'
         shell: bash
         run: ./scripts/verify-musl.sh ${{ matrix.binary }}
