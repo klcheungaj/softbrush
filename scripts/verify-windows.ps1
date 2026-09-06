@@ -64,6 +64,11 @@ if ($dependencyNames.Count -eq 0) {
     throw "dumpbin did not report any DLL dependencies for $Binary"
 }
 foreach ($dependencyName in $dependencyNames) {
+    # API-set contracts are virtual DLL names resolved by the Windows loader.
+    # They are not required to have a corresponding file in System32.
+    if ($dependencyName -match '^(api|ext)-ms-win-[A-Za-z0-9-]+\.dll$') {
+        continue
+    }
     $systemLibrary = Join-Path $env:SystemRoot "System32/$dependencyName"
     if (-not (Test-Path -LiteralPath $systemLibrary -PathType Leaf)) {
         throw "$Binary has a dynamic dependency that is not a Windows system DLL: $dependencyName"
