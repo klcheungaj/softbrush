@@ -14,6 +14,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gnu
+          workspaces: |
+            . -> target
+            tools/parser-generator -> tools/parser-generator/target
       - name: Check formatting
         run: |
           cargo +1.95.0 fmt --all --check
@@ -43,6 +49,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          shared-key: security
       - name: Install cargo-audit
         run: cargo +stable install cargo-audit --locked
       - name: Audit language server dependencies
@@ -93,6 +103,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain and target
         run: rustup toolchain install 1.95.0 --profile minimal --target ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
       - name: Install musl tools
         if: matrix.os == 'linux'
         shell: bash
@@ -144,11 +157,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build GNU development image
-        run: docker build --target gnu-dev --tag softbrush_ls:dev .
-      - name: Run tests in GNU development image
-        run: docker run --rm softbrush_ls:dev
+      - uses: docker/setup-buildx-action@v3
       - name: Build Alpine musl image
-        run: docker build --tag softbrush_ls:musl .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: softbrush_ls:musl
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Smoke-test container entrypoint
         run: docker run --rm --interactive softbrush_ls:musl </dev/null
