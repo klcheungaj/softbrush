@@ -45,17 +45,13 @@ Use GNU builds for normal Linux debugging:
 cargo test --locked --all-targets --target x86_64-unknown-linux-gnu
 ```
 
-The Debian-based `gnu-dev` Docker target includes Rustfmt and Clippy and runs
-the test suite by default:
+The Dockerfile builds only the static musl release image. Build and smoke-test
+it with:
 
 ```sh
-docker build --target gnu-dev --tag softbrush_ls:dev .
-docker run --rm softbrush_ls:dev
+docker build --tag softbrush_ls:musl .
+docker run --rm --interactive softbrush_ls:musl </dev/null
 ```
-
-For an interactive container, bind the repository at `/workspace` and use a
-named volume for `/workspace/target`. The image defaults to UID/GID 1000; use
-the `UID` and `GID` build arguments when needed.
 
 ### Debug token dumps
 
