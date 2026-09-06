@@ -31,6 +31,21 @@ fn rejects_invalid_arguments_without_starting_lsp() {
     }
 }
 
+#[test]
+fn help_lists_supported_arguments() {
+    let output = run(&["--help"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let help = String::from_utf8_lossy(&output.stdout);
+    for argument in ["--stdio", "--help"] {
+        assert!(help.contains(argument), "help output is missing {argument}");
+    }
+    #[cfg(debug_assertions)]
+    assert!(help.contains("--dump-tokens"));
+    #[cfg(not(debug_assertions))]
+    assert!(!help.contains("--dump-tokens"));
+}
+
 #[cfg(not(debug_assertions))]
 #[test]
 fn release_build_rejects_non_transport_arguments() {
