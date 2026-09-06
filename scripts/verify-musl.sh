@@ -42,9 +42,40 @@ fi
 # grep exits after the first match, making a successful pipeline fail under
 # pipefail.
 nm "$binary" >"$symbols"
-if ! grep -Eq '[[:space:]][[:alpha:]][[:space:]]mi_free$' "$symbols"; then
-  echo "error: $binary does not expose the expected mimalloc symbol mi_free" >&2
+
+# The global Rust allocator only redirects Rust allocations. These strong C
+# entry points prove that mimalloc's override layer also owns allocations made
+# by musl and native dependencies.
+mimalloc_symbols=(
+  mi_malloc
+  mi_free
+  malloc
+  calloc
+  realloc
+  free
+  aligned_alloc
+  posix_memalign
+  memalign
+  malloc_usable_size
+  reallocarray
+  __libc_malloc
+  __libc_calloc
+  __libc_realloc
+  __libc_free
+)
+for symbol in "${mimalloc_symbols[@]}"; do
+  if ! grep -Eq "[[:space:]]T[[:space:]]$symbol$" "$symbols"; then
+    echo "error: $binary lacks mimalloc's strong allocator override: $symbol" >&2
+    exit 1
+  fi
+done
+
+# These symbols are implementation details of musl's mallocng allocator. Their
+# presence means musl's allocator objects were linked alongside mimalloc.
+musl_allocator_pattern='(__libc_malloc_impl|__malloc_alloc_meta|__malloc_context|__malloc_lock|__malloc_replaced|__malloc_size_classes)$'
+if grep -Eq "[[:space:]][[:alpha:]][[:space:]]$musl_allocator_pattern" "$symbols"; then
+  echo "error: $binary still contains the musl allocator implementation" >&2
   exit 1
 fi
 
-echo "verified static musl executable with mimalloc: $binary"
+echo "verified static musl executable with complete mimalloc override: $binary"

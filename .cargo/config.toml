@@ -1,10 +1,26 @@
 [target.x86_64-unknown-linux-musl]
 linker = "musl-gcc"
-rustflags = ["-C", "target-feature=+crt-static"]
 
 [target.aarch64-unknown-linux-musl]
 linker = "musl-gcc"
-rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.'cfg(all(target_os = "linux", target_env = "musl"))']
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-Wl,-u,malloc",
+    "-C", "link-arg=-Wl,-u,calloc",
+    "-C", "link-arg=-Wl,-u,realloc",
+    "-C", "link-arg=-Wl,-u,free",
+    "-C", "link-arg=-Wl,-u,aligned_alloc",
+    "-C", "link-arg=-Wl,-u,posix_memalign",
+    "-C", "link-arg=-Wl,-u,memalign",
+    "-C", "link-arg=-Wl,-u,malloc_usable_size",
+    "-C", "link-arg=-Wl,-u,reallocarray",
+    "-C", "link-arg=-Wl,-u,__libc_malloc",
+    "-C", "link-arg=-Wl,-u,__libc_calloc",
+    "-C", "link-arg=-Wl,-u,__libc_realloc",
+    "-C", "link-arg=-Wl,-u,__libc_free",
+]
 
 [target.'cfg(all(target_os = "windows", target_env = "msvc"))']
 # Bundle the MSVC/UCRT runtime. Windows system DLLs remain dynamically linked.

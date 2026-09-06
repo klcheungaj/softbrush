@@ -102,6 +102,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps --target x86_64-unknown-
 cargo test --locked --manifest-path tools/parser-generator/Cargo.toml
 cargo clippy --locked --manifest-path tools/parser-generator/Cargo.toml --all-targets -- -D warnings
 ./scripts/generate-parser.sh --check
+./tests/verify_musl_allocator.sh
 ./scripts/build-linux.sh
 ./scripts/verify-musl.sh target/x86_64-unknown-linux-musl/release/softbrush_ls
 ```
@@ -111,8 +112,9 @@ process-level LSP test when the externally observable protocol changes.
 `SOFTBRUSH_LS_BIN` selects a prebuilt executable for `tests/lsp_e2e.rs`.
 
 CI tests all five release targets on native GitHub runners and verifies their
-linkage policy. Release automation publishes a platform archive and SHA-256
-checksum for each target.
+linkage policy. Linux verification requires mimalloc's strong C allocation
+overrides and rejects binaries containing musl allocator internals. Release
+automation publishes a platform archive and SHA-256 checksum for each target.
 
 ## Change discipline
 
