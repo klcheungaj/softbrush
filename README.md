@@ -1,6 +1,6 @@
-# softbrush_ls
+# Softbrush
 
-`softbrush_ls` is a tolerant language server for Tcl 8.6 and the Tcl-based
+`softbrush_ls` is a language server for Tcl 8.6 and the Tcl-based
 SDC/XDC constraint dialects.
 
 ## Features
