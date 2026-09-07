@@ -37,13 +37,24 @@ fn help_lists_supported_arguments() {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let help = String::from_utf8_lossy(&output.stdout);
-    for argument in ["--stdio", "--help"] {
+    for argument in ["--stdio", "--help", "--version"] {
         assert!(help.contains(argument), "help output is missing {argument}");
     }
     #[cfg(debug_assertions)]
     assert!(help.contains("--dump-tokens"));
     #[cfg(not(debug_assertions))]
     assert!(!help.contains("--dump-tokens"));
+}
+
+#[test]
+fn version_prints_package_version() {
+    let output = run(&["--version"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("version output is UTF-8"),
+        concat!(env!("CARGO_PKG_VERSION"), "\n")
+    );
 }
 
 #[cfg(not(debug_assertions))]

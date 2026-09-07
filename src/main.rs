@@ -12,6 +12,9 @@ static G_ALLOCATOR: MiMalloc = MiMalloc;
 
 fn main() -> ExitCode {
     let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if arguments.len() == 1 && arguments[0] == "--version" {
+        return print_version();
+    }
     if arguments.len() == 1 && matches!(arguments[0].to_str(), Some("--help" | "-h")) {
         return print_help();
     }
@@ -43,6 +46,18 @@ fn print_help() -> ExitCode {
     }
 }
 
+fn print_version() -> ExitCode {
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    match writeln!(output, "{}", env!("CARGO_PKG_VERSION")) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("softbrush_ls: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
 fn write_help(output: &mut impl Write) -> io::Result<()> {
     writeln!(output, "Usage: softbrush_ls [ARGUMENT]")?;
     writeln!(output)?;
@@ -59,6 +74,8 @@ fn write_help(output: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(output, "    --help, -h")?;
     writeln!(output, "        Print this help message and exit.")?;
+    writeln!(output, "    --version")?;
+    writeln!(output, "        Print the version number and exit.")?;
     #[cfg(debug_assertions)]
     {
         writeln!(output)?;
