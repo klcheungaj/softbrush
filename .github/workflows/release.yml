@@ -56,7 +56,7 @@ jobs:
             binary: target/aarch64-apple-darwin/release/softbrush_ls
     runs-on: ${{ matrix.runner }}
     env:
-      ARCHIVE: softbrush_ls-${{ github.event.release.tag_name }}-${{ matrix.os }}-${{ matrix.release_arch }}.${{ matrix.archive_extension }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust toolchain and target
@@ -110,6 +110,9 @@ jobs:
         if: matrix.os == 'macos'
         shell: bash
         run: ./scripts/verify-macos.sh ${{ matrix.binary }}
+      - name: Set archive name
+        shell: bash
+        run: echo "ARCHIVE=softbrush_ls-${RELEASE_TAG#v}-${{ matrix.os }}-${{ matrix.release_arch }}.${{ matrix.archive_extension }}" >> "$GITHUB_ENV"
       - name: Package Unix executable
         if: matrix.os != 'windows'
         shell: bash
