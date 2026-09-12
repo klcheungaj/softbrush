@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 antlr-rust-codegen = "=0.34.0"
 # rustpython-vm 0.5.0 assumes the pre-0.2.187 POSIX_SPAWN_SETSID type.
-libc = "=0.2.186"
+libc = "=0.2.189"
 
 [lints.rust]
 unsafe_code = "warn"
