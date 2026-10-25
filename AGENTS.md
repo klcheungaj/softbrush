@@ -118,3 +118,6 @@ Keep public APIs small and documented. Avoid `unwrap` in production code and
 confine any necessary `unsafe` code to `src/ffi/` with a documented safety
 contract. Preserve unrelated working-tree changes. Group commits by coherent
 purpose and explain generated or dependency-lock changes in the commit.
+
+Do not add `Co-Authored-By` trailers or other AI attribution lines to commit
+messages or pull request descriptions.
