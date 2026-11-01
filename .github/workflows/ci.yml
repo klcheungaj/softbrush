@@ -43,8 +43,8 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  platforms:
-    name: ${{ matrix.name }}
+  build:
+    name: Build ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
@@ -102,6 +102,81 @@ jobs:
       - name: Build Windows/macOS release
         if: matrix.os != 'linux'
         run: cargo +1.95.0 build --locked --release --target ${{ matrix.target }}
+      # Hands the release executable to the test job, which runs on a separate
+      # runner. Kept for one day; this is not a distribution channel.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: softbrush_ls-${{ matrix.target }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 1
+      - name: Print executable size
+        shell: bash
+        run: |
+          bytes=$(wc -c < "${{ matrix.binary }}" | tr -d ' ')
+          size="$(( (bytes + 1023) / 1024 )) KiB"
+          echo "${{ matrix.binary }}: $bytes bytes ($size)"
+          echo "**${{ matrix.name }}** executable size: $bytes bytes ($size)" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Test ${{ matrix.name }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64 (musl)
+            runner: ubuntu-24.04
+            os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-musl
+            binary: target/x86_64-unknown-linux-musl/release/softbrush_ls
+          - name: Linux ARM64 (musl)
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-musl
+            binary: target/aarch64-unknown-linux-musl/release/softbrush_ls
+          - name: Windows x64 (MSVC)
+            runner: windows-2025
+            os: windows
+            arch: x64
+            target: x86_64-pc-windows-msvc
+            binary: target/x86_64-pc-windows-msvc/release/softbrush_ls.exe
+          - name: Windows ARM64 (MSVC)
+            runner: windows-11-vs2026-arm
+            os: windows
+            arch: arm64
+            target: aarch64-pc-windows-msvc
+            binary: target/aarch64-pc-windows-msvc/release/softbrush_ls.exe
+          - name: macOS ARM64
+            runner: macos-15
+            os: macos
+            arch: arm64
+            target: aarch64-apple-darwin
+            binary: target/aarch64-apple-darwin/release/softbrush_ls
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain and target
+        run: rustup toolchain install 1.95.0 --profile minimal --target ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - uses: actions/download-artifact@v8
+        with:
+          name: softbrush_ls-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release
+      - name: Restore executable permission
+        if: matrix.os != 'windows'
+        shell: bash
+        run: chmod +x "${{ matrix.binary }}"
       - name: Run Linux tests
         if: matrix.os == 'linux'
         run: cargo +1.95.0 test --locked --all-targets --target ${{ matrix.target }}
