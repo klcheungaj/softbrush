@@ -43,25 +43,6 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Rust toolchain
-        run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-          shared-key: security
-      - name: Install cargo-audit
-        run: cargo +stable install cargo-audit --locked
-      - name: Audit language server dependencies
-        run: cargo +stable audit --file Cargo.lock --deny unsound
-      - name: Audit parser generator dependencies
-        # antlr-rust-codegen currently brings build-only, unmaintained UNIC
-        # crates through RustPython. Vulnerabilities and unsoundness still fail.
-        run: cargo +stable audit --file tools/parser-generator/Cargo.lock --deny unsound
-
   platforms:
     name: ${{ matrix.name }}
     strategy:

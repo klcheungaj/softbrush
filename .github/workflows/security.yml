@@ -1,0 +1,38 @@
+name: Security
+
+on:
+  schedule:
+    # Daily at 03:17 UTC; advisories change independently of pushes.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          shared-key: security
+      - name: Install cargo-audit
+        run: cargo +stable install cargo-audit --locked
+      - name: Audit language server dependencies
+        run: cargo +stable audit --file Cargo.lock --deny unsound
+      - name: Audit parser generator dependencies
+        # antlr-rust-codegen currently brings build-only, unmaintained UNIC
+        # crates through RustPython. Vulnerabilities and unsoundness still fail.
+        #
+        # RUSTSEC-2026-0394: rustpython-vm 0.5.0 compiles the build environment
+        # into its binary. antlr-rust-codegen 0.34.0 hard-requires 0.5, and no
+        # release uses 0.6 yet. The generator is a local developer tool that is
+        # never released or uploaded; CI builds it without secrets. Remove this
+        # ignore when antlr-rust-codegen moves to rustpython-vm >= 0.6.0.
+        run: >-
+          cargo +stable audit --file tools/parser-generator/Cargo.lock --deny unsound
+          --ignore RUSTSEC-2026-0394
